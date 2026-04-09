@@ -1,3 +1,4 @@
+// src/main/java/org/forgerock/openicf/connectors/googlevertexai/utils/GoogleVertexAIConstants.java
 package org.forgerock.openicf.connectors.googlevertexai.utils;
 
 /**
@@ -81,6 +82,14 @@ public abstract class GoogleVertexAIConstants {
     public static final String ATTR_DATA_STORE_TYPE = "dataStoreType";
 
     // ---------------------------------------------------------------------
+    // Guardrail attributes (OPENICF-4004)
+    // ---------------------------------------------------------------------
+    public static final String ATTR_SAFETY_ENFORCEMENT = "safetyEnforcement";
+    public static final String ATTR_BANNED_PHRASES = "bannedPhrases";
+    public static final String ATTR_DEFAULT_BANNED_PHRASES = "defaultBannedPhrases";
+    public static final String ATTR_RAW_SETTINGS_JSON = "rawSettingsJson";
+
+    // ---------------------------------------------------------------------
     // Identity binding attributes
     // ---------------------------------------------------------------------
     public static final String ATTR_KIND = "kind";
@@ -89,6 +98,20 @@ public abstract class GoogleVertexAIConstants {
     public static final String ATTR_SCOPE = "scope";
     public static final String ATTR_IAM_ROLE = "iamRole";
     public static final String ATTR_IAM_MEMBER = "iamMember";
+
+    // ---------------------------------------------------------------------
+    // Service account object class and attributes (OPENICF-4001)
+    // ---------------------------------------------------------------------
+    public static final String OC_SERVICE_ACCOUNT = "serviceAccount";
+
+    public static final String ATTR_SA_EMAIL = "email";
+    public static final String ATTR_SA_UNIQUE_ID = "uniqueId";
+    public static final String ATTR_SA_DISABLED = "disabled";
+    public static final String ATTR_SA_OAUTH2_CLIENT_ID = "oauth2ClientId";
+    public static final String ATTR_SA_PROJECT_ID = "saProjectId";
+    public static final String ATTR_SA_LINKED_AGENTS = "linkedAgentIds";
+    public static final String ATTR_SA_KEYS = "keys";
+    public static final String ATTR_SA_KEY_COUNT = "keyCount";
 
     private GoogleVertexAIConstants() {
         // prevent instantiation

@@ -1,3 +1,4 @@
+// src/main/java/org/forgerock/openicf/connectors/googlevertexai/GoogleVertexAIConnection.java
 package org.forgerock.openicf.connectors.googlevertexai;
 
 import org.forgerock.openicf.connectors.googlevertexai.client.GoogleVertexAIClient;
@@ -31,7 +32,11 @@ public class GoogleVertexAIConnection implements Closeable {
             return new GoogleVertexAIClient(projectId, location, flavor);
         } else {
             String keyJson = toPlainString(config.getServiceAccountKeyJson());
-            return new GoogleVertexAIClient(projectId, location, flavor, keyJson);
+            // OPENICF-4001, OPENICF-4003: Pass organizationId and useCloudAssetApi
+            String organizationId = config.getOrganizationId();
+            boolean useCloudAssetApi = config.isUseCloudAssetApi();
+            return new GoogleVertexAIClient(projectId, location, flavor, keyJson,
+                    organizationId, useCloudAssetApi);
         }
     }
 

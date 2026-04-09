@@ -1,3 +1,4 @@
+// src/main/java/org/forgerock/openicf/connectors/googlevertexai/GoogleVertexAIConnector.java
 package org.forgerock.openicf.connectors.googlevertexai;
 
 import org.forgerock.openicf.connectors.googlevertexai.operations.GoogleVertexAICrudService;
@@ -188,12 +189,26 @@ public class GoogleVertexAIConnector implements
         builder.defineObjectClass(kbOc.build());
 
         // -----------------------------------------------------------------
-        // Guardrail — stub
+        // Guardrail (OPENICF-4004)
         // -----------------------------------------------------------------
         ObjectClassInfoBuilder guardrailOc = new ObjectClassInfoBuilder();
         guardrailOc.setType(GoogleVertexAIConstants.OC_GUARDRAIL);
+
         guardrailOc.addAttributeInfo(AttributeInfoBuilder.build(
                 GoogleVertexAIConstants.ATTR_PLATFORM, String.class));
+        guardrailOc.addAttributeInfo(AttributeInfoBuilder.build(
+                GoogleVertexAIConstants.ATTR_AGENT_ID, String.class));
+        guardrailOc.addAttributeInfo(AttributeInfoBuilder.build(
+                GoogleVertexAIConstants.ATTR_SAFETY_ENFORCEMENT, String.class));
+        guardrailOc.addAttributeInfo(AttributeInfoBuilder.define(
+                        GoogleVertexAIConstants.ATTR_BANNED_PHRASES)
+                .setType(String.class).setMultiValued(true).build());
+        guardrailOc.addAttributeInfo(AttributeInfoBuilder.define(
+                        GoogleVertexAIConstants.ATTR_DEFAULT_BANNED_PHRASES)
+                .setType(String.class).setMultiValued(true).build());
+        guardrailOc.addAttributeInfo(AttributeInfoBuilder.build(
+                GoogleVertexAIConstants.ATTR_RAW_SETTINGS_JSON, String.class));
+
         builder.defineObjectClass(guardrailOc.build());
 
         // -----------------------------------------------------------------
@@ -221,6 +236,40 @@ public class GoogleVertexAIConnector implements
                 GoogleVertexAIConstants.ATTR_IAM_MEMBER, String.class));
 
         builder.defineObjectClass(ibOc.build());
+
+        // -----------------------------------------------------------------
+        // Service Account (OPENICF-4001)
+        // -----------------------------------------------------------------
+        ObjectClassInfoBuilder saOc = new ObjectClassInfoBuilder();
+        saOc.setType(GoogleVertexAIConstants.OC_SERVICE_ACCOUNT);
+
+        saOc.addAttributeInfo(AttributeInfoBuilder.build(
+                GoogleVertexAIConstants.ATTR_PLATFORM, String.class));
+        saOc.addAttributeInfo(AttributeInfoBuilder.build(
+                GoogleVertexAIConstants.ATTR_SA_EMAIL, String.class));
+        saOc.addAttributeInfo(AttributeInfoBuilder.build(
+                GoogleVertexAIConstants.ATTR_DESCRIPTION, String.class));
+        saOc.addAttributeInfo(AttributeInfoBuilder.build(
+                "displayName", String.class));
+        saOc.addAttributeInfo(AttributeInfoBuilder.build(
+                GoogleVertexAIConstants.ATTR_SA_PROJECT_ID, String.class));
+        saOc.addAttributeInfo(AttributeInfoBuilder.build(
+                GoogleVertexAIConstants.ATTR_SA_UNIQUE_ID, String.class));
+        saOc.addAttributeInfo(AttributeInfoBuilder.build(
+                GoogleVertexAIConstants.ATTR_CREATED_AT, String.class));
+        saOc.addAttributeInfo(AttributeInfoBuilder.build(
+                GoogleVertexAIConstants.ATTR_SA_OAUTH2_CLIENT_ID, String.class));
+        saOc.addAttributeInfo(AttributeInfoBuilder.build(
+                GoogleVertexAIConstants.ATTR_SA_DISABLED, Boolean.class));
+        saOc.addAttributeInfo(AttributeInfoBuilder.build(
+                GoogleVertexAIConstants.ATTR_SA_KEYS, String.class));
+        saOc.addAttributeInfo(AttributeInfoBuilder.build(
+                GoogleVertexAIConstants.ATTR_SA_KEY_COUNT, Integer.class));
+        saOc.addAttributeInfo(AttributeInfoBuilder.define(
+                        GoogleVertexAIConstants.ATTR_SA_LINKED_AGENTS)
+                .setType(String.class).setMultiValued(true).build());
+
+        builder.defineObjectClass(saOc.build());
 
         Schema schema = builder.build();
         LOG.ok("Schema built for GoogleVertexAIConnector.");
@@ -287,6 +336,9 @@ public class GoogleVertexAIConnector implements
             crudService.searchGuardrails(objectClass, filter, pagingHandler, options);
         } else if (GoogleVertexAIConstants.OC_IDENTITY_BINDING.equals(ocName)) {
             crudService.searchIdentityBindings(objectClass, filter, pagingHandler, options);
+        } else if (GoogleVertexAIConstants.OC_SERVICE_ACCOUNT.equals(ocName)) {
+            // OPENICF-4001: Service account search
+            crudService.searchServiceAccounts(objectClass, filter, pagingHandler, options);
         } else {
             LOG.warn("Unsupported objectClass: {0}", ocName);
         }
@@ -313,6 +365,9 @@ public class GoogleVertexAIConnector implements
             co = crudService.getKnowledgeBase(objectClass, uid, options);
         } else if (GoogleVertexAIConstants.OC_GUARDRAIL.equals(ocName)) {
             co = crudService.getGuardrail(objectClass, uid, options);
+        } else if (GoogleVertexAIConstants.OC_SERVICE_ACCOUNT.equals(ocName)) {
+            // OPENICF-4001: Service account GET
+            co = crudService.getServiceAccount(objectClass, uid, options);
         } else {
             throw new UnsupportedOperationException(
                     "Unsupported ObjectClass for GET: " + objectClass);

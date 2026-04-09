@@ -1,3 +1,4 @@
+// src/main/java/org/forgerock/openicf/connectors/googlevertexai/operations/GoogleVertexAICrudService.java
 package org.forgerock.openicf.connectors.googlevertexai.operations;
 
 import org.forgerock.openicf.connectors.googlevertexai.GoogleVertexAIConnection;
@@ -124,13 +125,36 @@ public class GoogleVertexAICrudService {
         }
     }
 
+    // OPENICF-4004: Guardrail search
     public void searchGuardrails(ObjectClass objectClass,
                                  Filter query,
                                  ResultsHandler handler,
                                  OperationOptions options) {
-        // TODO: guardrails are embedded in agent safety settings.
-        // No standalone guardrail objects in Dialogflow CX.
-        LOG.ok("searchGuardrails called — returning empty (TODO).");
+        LOG.ok("searchGuardrails called for OC {0}", objectClass);
+
+        List<GoogleVertexGuardrailDescriptor> guardrails = client.listAllGuardrails();
+        if (guardrails == null || guardrails.isEmpty()) {
+            return;
+        }
+
+        String matchUid = extractFilterValue(query, Uid.NAME);
+        String matchName = extractFilterValue(query, NAME);
+
+        for (GoogleVertexGuardrailDescriptor guardrail : guardrails) {
+            ConnectorObject co = toGuardrailConnectorObject(objectClass, guardrail);
+            if (co == null) {
+                continue;
+            }
+            if (matchUid != null && !matchUid.equals(co.getUid().getUidValue())) {
+                continue;
+            }
+            if (matchName != null && !matchName.equals(co.getName().getNameValue())) {
+                continue;
+            }
+            if (!handler.handle(co)) {
+                break;
+            }
+        }
     }
 
     public void searchIdentityBindings(ObjectClass objectClass,
@@ -144,7 +168,9 @@ public class GoogleVertexAICrudService {
             return;
         }
 
-        List<GoogleVertexIamBindingDescriptor> bindings = client.listAllIamBindings();
+        // OPENICF-4002: Include SA IAM bindings when SA discovery is enabled
+        boolean includeServiceAccounts = connection.getConfiguration().isDiscoverServiceAccounts();
+        List<GoogleVertexIamBindingDescriptor> bindings = client.listAllIamBindings(includeServiceAccounts);
         if (bindings == null || bindings.isEmpty()) {
             return;
         }
@@ -154,6 +180,48 @@ public class GoogleVertexAICrudService {
 
         for (GoogleVertexIamBindingDescriptor binding : bindings) {
             ConnectorObject co = toIdentityBindingConnectorObject(objectClass, binding);
+            if (co == null) {
+                continue;
+            }
+            if (matchUid != null && !matchUid.equals(co.getUid().getUidValue())) {
+                continue;
+            }
+            if (matchName != null && !matchName.equals(co.getName().getNameValue())) {
+                continue;
+            }
+            if (!handler.handle(co)) {
+                break;
+            }
+        }
+    }
+
+    // OPENICF-4001: Service account search
+    public void searchServiceAccounts(ObjectClass objectClass,
+                                      Filter query,
+                                      ResultsHandler handler,
+                                      OperationOptions options) {
+        LOG.ok("searchServiceAccounts called for OC {0}", objectClass);
+
+        if (!connection.getConfiguration().isDiscoverServiceAccounts()) {
+            LOG.ok("Service account discovery is disabled.");
+            return;
+        }
+
+        List<GoogleVertexServiceAccountDescriptor> serviceAccounts = client.listServiceAccounts();
+        if (serviceAccounts == null || serviceAccounts.isEmpty()) {
+            return;
+        }
+
+        String matchUid = extractFilterValue(query, Uid.NAME);
+        String matchName = extractFilterValue(query, NAME);
+
+        // Determine which expensive attributes to fetch (Q18)
+        boolean includeKeys = connection.getConfiguration().isIncludeServiceAccountKeys()
+                && isAttributeRequested(options, GoogleVertexAIConstants.ATTR_SA_KEYS);
+        boolean includeLinkedAgents = isAttributeRequested(options, GoogleVertexAIConstants.ATTR_SA_LINKED_AGENTS);
+
+        for (GoogleVertexServiceAccountDescriptor sa : serviceAccounts) {
+            ConnectorObject co = toServiceAccountConnectorObject(objectClass, sa, includeKeys, includeLinkedAgents);
             if (co == null) {
                 continue;
             }
@@ -217,11 +285,47 @@ public class GoogleVertexAICrudService {
         return null;
     }
 
+    // OPENICF-4004: Get single guardrail
     public ConnectorObject getGuardrail(ObjectClass objectClass,
                                         Uid uid,
                                         OperationOptions options) {
-        // TODO
+        if (uid == null || uid.getUidValue() == null) {
+            return null;
+        }
+
+        String id = uid.getUidValue();
+        List<GoogleVertexGuardrailDescriptor> guardrails = client.listAllGuardrails();
+        for (GoogleVertexGuardrailDescriptor guardrail : guardrails) {
+            if (id.equals(guardrail.getId())) {
+                return toGuardrailConnectorObject(objectClass, guardrail);
+            }
+        }
         return null;
+    }
+
+    // OPENICF-4001: Get single service account
+    public ConnectorObject getServiceAccount(ObjectClass objectClass,
+                                             Uid uid,
+                                             OperationOptions options) {
+        if (uid == null || uid.getUidValue() == null) {
+            return null;
+        }
+
+        if (!connection.getConfiguration().isDiscoverServiceAccounts()) {
+            LOG.ok("Service account discovery is disabled.");
+            return null;
+        }
+
+        GoogleVertexServiceAccountDescriptor sa = client.getServiceAccount(uid.getUidValue());
+        if (sa == null) {
+            return null;
+        }
+
+        // For single-object GET, always include expensive attributes (Q18)
+        boolean includeKeys = connection.getConfiguration().isIncludeServiceAccountKeys();
+        boolean includeLinkedAgents = true;
+
+        return toServiceAccountConnectorObject(objectClass, sa, includeKeys, includeLinkedAgents);
     }
 
     // =================================================================
@@ -401,6 +505,106 @@ public class GoogleVertexAICrudService {
         return b.build();
     }
 
+    // OPENICF-4004: Guardrail mapping
+    private ConnectorObject toGuardrailConnectorObject(ObjectClass objectClass,
+                                                       GoogleVertexGuardrailDescriptor guardrail) {
+        if (guardrail == null || guardrail.getId() == null) {
+            return null;
+        }
+
+        ConnectorObjectBuilder b = new ConnectorObjectBuilder();
+        b.setObjectClass(objectClass);
+
+        // __UID__ = {agentResourceName}:guardrail
+        b.setUid(new Uid(guardrail.getId()));
+
+        // __NAME__ = same as UID for guardrails
+        b.setName(new Name(guardrail.getId()));
+
+        b.addAttribute(AttributeBuilder.build(
+                GoogleVertexAIConstants.ATTR_PLATFORM,
+                GoogleVertexAIConstants.PLATFORM_VALUE));
+
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_AGENT_ID, guardrail.getAgentResourceName());
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_SAFETY_ENFORCEMENT, guardrail.getSafetyEnforcement());
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_RAW_SETTINGS_JSON, guardrail.getRawSettingsJson());
+
+        // Multi-valued: banned phrases
+        if (!guardrail.getBannedPhrases().isEmpty()) {
+            b.addAttribute(AttributeBuilder.build(
+                    GoogleVertexAIConstants.ATTR_BANNED_PHRASES,
+                    guardrail.getBannedPhrases()));
+        }
+
+        // Multi-valued: default banned phrases
+        if (!guardrail.getDefaultBannedPhrases().isEmpty()) {
+            b.addAttribute(AttributeBuilder.build(
+                    GoogleVertexAIConstants.ATTR_DEFAULT_BANNED_PHRASES,
+                    guardrail.getDefaultBannedPhrases()));
+        }
+
+        return b.build();
+    }
+
+    // OPENICF-4001: Service account mapping
+    private ConnectorObject toServiceAccountConnectorObject(ObjectClass objectClass,
+                                                            GoogleVertexServiceAccountDescriptor sa,
+                                                            boolean includeKeys,
+                                                            boolean includeLinkedAgents) {
+        if (sa == null || sa.getName() == null) {
+            return null;
+        }
+
+        ConnectorObjectBuilder b = new ConnectorObjectBuilder();
+        b.setObjectClass(objectClass);
+
+        // __UID__ = full resource name (projects/{project}/serviceAccounts/{email})
+        b.setUid(new Uid(sa.getName()));
+
+        // __NAME__ = email address
+        String nameValue = sa.getEmail() != null ? sa.getEmail() : sa.getName();
+        b.setName(new Name(nameValue));
+
+        b.addAttribute(AttributeBuilder.build(
+                GoogleVertexAIConstants.ATTR_PLATFORM,
+                GoogleVertexAIConstants.PLATFORM_VALUE));
+
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_SA_EMAIL, sa.getEmail());
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_DESCRIPTION, sa.getDescription());
+        addIfPresent(b, "displayName", sa.getDisplayName());
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_SA_PROJECT_ID, sa.getProjectId());
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_SA_UNIQUE_ID, sa.getUniqueId());
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_CREATED_AT, sa.getCreateTime());
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_SA_OAUTH2_CLIENT_ID, sa.getOauth2ClientId());
+
+        b.addAttribute(AttributeBuilder.build(
+                GoogleVertexAIConstants.ATTR_SA_DISABLED,
+                sa.isDisabled()));
+
+        // Expensive attributes: keys (fetched per-SA if requested)
+        if (includeKeys) {
+            String keysJson = client.listServiceAccountKeysJson(sa.getName());
+            b.addAttribute(AttributeBuilder.build(
+                    GoogleVertexAIConstants.ATTR_SA_KEYS, keysJson));
+
+            // Count keys from JSON
+            int keyCount = countKeysFromJson(keysJson);
+            b.addAttribute(AttributeBuilder.build(
+                    GoogleVertexAIConstants.ATTR_SA_KEY_COUNT, keyCount));
+        }
+
+        // Expensive attributes: linked agents (requires full agent scan if requested)
+        if (includeLinkedAgents && sa.getEmail() != null) {
+            List<String> linkedAgents = client.getLinkedAgentsForServiceAccount(sa.getEmail());
+            if (!linkedAgents.isEmpty()) {
+                b.addAttribute(AttributeBuilder.build(
+                        GoogleVertexAIConstants.ATTR_SA_LINKED_AGENTS, linkedAgents));
+            }
+        }
+
+        return b.build();
+    }
+
     // =================================================================
     // Helpers
     // =================================================================
@@ -427,5 +631,47 @@ public class GoogleVertexAICrudService {
             return null;
         }
         return String.valueOf(attr.getValue().get(0));
+    }
+
+    /**
+     * Check if an attribute is requested in OperationOptions.
+     * Returns true if:
+     * - options is null (all attributes)
+     * - getAttributesToGet() is null (all attributes)
+     * - attrName is in the getAttributesToGet() array
+     *
+     * OPENICF-4001: Q18 decision
+     */
+    private boolean isAttributeRequested(OperationOptions options, String attrName) {
+        if (options == null) {
+            return true;
+        }
+        String[] attrsToGet = options.getAttributesToGet();
+        if (attrsToGet == null) {
+            return true;
+        }
+        for (String attr : attrsToGet) {
+            if (attrName.equals(attr)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Count keys from JSON array string.
+     * OPENICF-4001
+     */
+    private int countKeysFromJson(String keysJson) {
+        if (keysJson == null || keysJson.isEmpty() || "[]".equals(keysJson)) {
+            return 0;
+        }
+        try {
+            List<?> keys = OBJECT_MAPPER.readValue(keysJson, List.class);
+            return keys.size();
+        } catch (JsonProcessingException e) {
+            LOG.warn("Failed to parse keys JSON for counting: {0}", e.getMessage());
+            return 0;
+        }
     }
 }

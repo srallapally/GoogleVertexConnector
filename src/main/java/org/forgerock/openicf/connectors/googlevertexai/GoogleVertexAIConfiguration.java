@@ -1,3 +1,4 @@
+// src/main/java/org/forgerock/openicf/connectors/googlevertexai/GoogleVertexAIConfiguration.java
 package org.forgerock.openicf.connectors.googlevertexai;
 
 import org.identityconnectors.common.StringUtil;
@@ -5,6 +6,8 @@ import org.identityconnectors.common.logging.Log;
 import org.identityconnectors.common.security.GuardedString;
 import org.identityconnectors.framework.spi.AbstractConfiguration;
 import org.identityconnectors.framework.spi.ConfigurationProperty;
+
+import java.util.List;
 
 import static org.forgerock.openicf.connectors.googlevertexai.utils.GoogleVertexAIConstants.FLAVOR_DIALOGFLOW_CX;
 import static org.forgerock.openicf.connectors.googlevertexai.utils.GoogleVertexAIConstants.FLAVOR_VERTEX_AI;
@@ -29,6 +32,15 @@ public class GoogleVertexAIConfiguration extends AbstractConfiguration {
     private GuardedString serviceAccountKeyJson;
     private boolean identityBindingScanEnabled = false;
     private String agentNameFilterRegex;
+
+    private String organizationId;           // For org-wide scanning
+    private String folderId;                 // Optional folder scope (future use)
+    private List<String> regions;            // Multi-region support (future use)
+    private boolean useCloudAssetApi = false; // Enable org-wide mode (future use)
+
+    // OPENICF-4001: Service account discovery
+    private boolean discoverServiceAccounts = true;
+    private boolean includeServiceAccountKeys = true;
 
     // ---------------------------------------------------------------------
     // Getters / setters
@@ -133,6 +145,65 @@ public class GoogleVertexAIConfiguration extends AbstractConfiguration {
         this.agentNameFilterRegex = agentNameFilterRegex;
     }
 
+    // OPENICF-4001: Organization and service account configuration
+
+    @ConfigurationProperty(
+            order = 8,
+            displayMessageKey = "organizationId.display",
+            helpMessageKey = "organizationId.help",
+            required = false
+    )
+    public String getOrganizationId() {
+        return organizationId;
+    }
+
+    public void setOrganizationId(String organizationId) {
+        this.organizationId = organizationId;
+    }
+
+    @ConfigurationProperty(
+            order = 9,
+            displayMessageKey = "discoverServiceAccounts.display",
+            helpMessageKey = "discoverServiceAccounts.help",
+            required = false
+    )
+    public boolean isDiscoverServiceAccounts() {
+        return discoverServiceAccounts;
+    }
+
+    public void setDiscoverServiceAccounts(boolean discoverServiceAccounts) {
+        this.discoverServiceAccounts = discoverServiceAccounts;
+    }
+
+    @ConfigurationProperty(
+            order = 10,
+            displayMessageKey = "includeServiceAccountKeys.display",
+            helpMessageKey = "includeServiceAccountKeys.help",
+            required = false
+    )
+    public boolean isIncludeServiceAccountKeys() {
+        return includeServiceAccountKeys;
+    }
+
+    public void setIncludeServiceAccountKeys(boolean includeServiceAccountKeys) {
+        this.includeServiceAccountKeys = includeServiceAccountKeys;
+    }
+
+    // OPENICF-4003: Org-wide agent scanning via Cloud Asset API
+    @ConfigurationProperty(
+            order = 11,
+            displayMessageKey = "useCloudAssetApi.display",
+            helpMessageKey = "useCloudAssetApi.help",
+            required = false
+    )
+    public boolean isUseCloudAssetApi() {
+        return useCloudAssetApi;
+    }
+
+    public void setUseCloudAssetApi(boolean useCloudAssetApi) {
+        this.useCloudAssetApi = useCloudAssetApi;
+    }
+
     // ---------------------------------------------------------------------
     // Validation
     // ---------------------------------------------------------------------
@@ -164,8 +235,18 @@ public class GoogleVertexAIConfiguration extends AbstractConfiguration {
                             + "', got: " + agentApiFlavor);
         }
 
+        // OPENICF-4003: Validate org-wide scanning configuration
+        if (useCloudAssetApi && StringUtil.isBlank(organizationId)) {
+            throw new IllegalArgumentException(
+                    "organizationId must be specified when useCloudAssetApi is enabled.");
+        }
+
+        // OPENICF-4001, OPENICF-4003: Log configuration
         LOG.ok("GoogleVertexAIConfiguration validated. projectId={0}, location={1}, " +
-                        "agentApiFlavor={2}, useWorkloadIdentity={3}, identityBindingScanEnabled={4}",
-                projectId, location, agentApiFlavor, useWorkloadIdentity, identityBindingScanEnabled);
+                        "agentApiFlavor={2}, useWorkloadIdentity={3}, identityBindingScanEnabled={4}, " +
+                        "organizationId={5}, discoverServiceAccounts={6}, includeServiceAccountKeys={7}, " +
+                        "useCloudAssetApi={8}",
+                projectId, location, agentApiFlavor, useWorkloadIdentity, identityBindingScanEnabled,
+                organizationId, discoverServiceAccounts, includeServiceAccountKeys, useCloudAssetApi);
     }
 }
