@@ -1,3 +1,4 @@
+// src/main/java/org/forgerock/openicf/connectors/googlevertexai/client/GoogleVertexToolDescriptor.java
 package org.forgerock.openicf.connectors.googlevertexai.client;
 
 /**
@@ -14,19 +15,26 @@ public class GoogleVertexToolDescriptor {
     private final String description;
     private final String endpoint;      // webhook URI if applicable
     private final String agentResourceName; // owning agent
+    // OPENICF-4011: tool authentication metadata
+    private final String authType;      // SERVICE_ACCOUNT, OAUTH, API_KEY, NONE
+    private final String credentialRef; // SA email or secret resource name; never secret value
 
     public GoogleVertexToolDescriptor(String name,
-                                String displayName,
-                                String toolType,
-                                String description,
-                                String endpoint,
-                                String agentResourceName) {
+                                      String displayName,
+                                      String toolType,
+                                      String description,
+                                      String endpoint,
+                                      String agentResourceName,
+                                      String authType,
+                                      String credentialRef) {
         this.name = name;
         this.displayName = displayName;
         this.toolType = toolType;
         this.description = description;
         this.endpoint = endpoint;
         this.agentResourceName = agentResourceName;
+        this.authType = authType;
+        this.credentialRef = credentialRef;
     }
 
     public String getName() {
@@ -51,5 +59,14 @@ public class GoogleVertexToolDescriptor {
 
     public String getAgentResourceName() {
         return agentResourceName;
+    }
+
+    // OPENICF-4011
+    public String getAuthType() {
+        return authType;
+    }
+
+    public String getCredentialRef() {
+        return credentialRef;
     }
 }

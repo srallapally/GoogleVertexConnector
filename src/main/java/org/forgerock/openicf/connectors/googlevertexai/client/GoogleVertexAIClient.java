@@ -1429,7 +1429,9 @@ public class GoogleVertexAIClient implements AutoCloseable, Closeable {
                 toolType,
                 optText(node, "description"),
                 null, // tools don't have a direct endpoint
-                agentResourceName
+                agentResourceName,
+                "NONE", // OPENICF-4011: CX tools have no auth config at the tool level
+                null
         );
     }
 
@@ -1440,10 +1442,28 @@ public class GoogleVertexAIClient implements AutoCloseable, Closeable {
         }
 
         String endpoint = null;
+        // OPENICF-4011: derive authType and credentialRef from webhook auth configuration
+        String authType = "NONE";
+        String credentialRef = null;
+
         if (node.has("genericWebService")) {
-            endpoint = optText(node.get("genericWebService"), "uri");
+            JsonNode gws = node.get("genericWebService");
+            endpoint = optText(gws, "uri");
+            if (optText(gws, "serviceAccount") != null) {
+                // Google-generated OIDC token for the specified SA
+                authType = "SERVICE_ACCOUNT";
+                credentialRef = optText(gws, "serviceAccount");
+            } else if (gws.has("oauthConfig")) {
+                authType = "OAUTH";
+            } else if (gws.has("requestHeaders")
+                    && gws.get("requestHeaders").isArray()
+                    && gws.get("requestHeaders").size() > 0) {
+                authType = "API_KEY";
+            }
         } else if (node.has("serviceDirectory")) {
+            // Service Directory webhooks use GCP service identity
             endpoint = optText(node.get("serviceDirectory"), "service");
+            authType = "SERVICE_ACCOUNT";
         }
 
         return new GoogleVertexToolDescriptor(
@@ -1452,7 +1472,9 @@ public class GoogleVertexAIClient implements AutoCloseable, Closeable {
                 "WEBHOOK",
                 null,
                 endpoint,
-                agentResourceName
+                agentResourceName,
+                authType,
+                credentialRef
         );
     }
 

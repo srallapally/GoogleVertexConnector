@@ -149,6 +149,10 @@ public class GoogleVertexAIConnector implements
                 GoogleVertexAIConstants.ATTR_AGENT_FRAMEWORK, String.class));
         agentOc.addAttributeInfo(AttributeInfoBuilder.build(
                 GoogleVertexAIConstants.ATTR_SERVICE_ACCOUNT, String.class));
+        // OPENICF-4011: per-tool auth summary
+        agentOc.addAttributeInfo(AttributeInfoBuilder.define(
+                        GoogleVertexAIConstants.ATTR_TOOL_AUTH_SUMMARY)
+                .setType(String.class).setMultiValued(true).build());
 
         builder.defineObjectClass(agentOc.build());
 

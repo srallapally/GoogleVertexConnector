@@ -6,59 +6,90 @@
 
     <groupId>org.forgerock.openicf.connectors</groupId>
     <artifactId>googlevertexai-connector</artifactId>
-    <version>1.5.20-29</version>
+    <version>1.5.20.29</version>
+    <packaging>bundle</packaging>
 
     <properties>
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <jackson.version>2.17.0</jackson.version>
+        <openicf.framework.version>1.5.20.33</openicf.framework.version>
+        <maven-bundle-plugin.version>5.1.9</maven-bundle-plugin.version>
     </properties>
-    <dependencyManagement>
-        <dependencies>
-            <dependency>
-                <groupId>com.google.cloud</groupId>
-                <artifactId>libraries-bom</artifactId>
-                <version>26.50.0</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-        </dependencies>
-    </dependencyManagement>
+
     <dependencies>
         <!-- OpenICF framework: provided by Ping/ForgeRock runtime -->
         <dependency>
             <groupId>org.forgerock.openicf.framework</groupId>
             <artifactId>connector-framework</artifactId>
-            <version>1.5.20.33</version>
+            <version>${openicf.framework.version}</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.forgerock.openicf.framework</groupId>
             <artifactId>connector-framework-internal</artifactId>
-            <version>1.5.20.33</version>
+            <version>${openicf.framework.version}</version>
             <scope>provided</scope>
         </dependency>
 
-        <!-- Jackson for JSON parsing -->
+        <!-- Jackson: used by GoogleVertexAIClient for JSON parsing -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
-            <version>2.17.0</version>
+            <version>${jackson.version}</version>
         </dependency>
         <dependency>
-            <groupId>com.google.cloud</groupId>
-            <artifactId>google-cloud-dialogflow-cx</artifactId>
-            <version>0.44.0</version>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-core</artifactId>
+            <version>${jackson.version}</version>
         </dependency>
         <dependency>
-            <groupId>com.google.cloud</groupId>
-            <artifactId>google-cloud-discoveryengine</artifactId>
-            <version>0.76.0</version>
-        </dependency>
-        <dependency>
-            <groupId>com.google.cloud</groupId>
-            <artifactId>google-cloud-aiplatform</artifactId>
-            <version>3.79.0</version>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-annotations</artifactId>
+            <version>${jackson.version}</version>
         </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.felix</groupId>
+                <artifactId>maven-bundle-plugin</artifactId>
+                <version>${maven-bundle-plugin.version}</version>
+                <extensions>true</extensions>
+                <configuration>
+                    <instructions>
+                        <Bundle-SymbolicName>org.forgerock.openicf.connectors.googlevertexai-connector</Bundle-SymbolicName>
+                        <Bundle-Name>Google Vertex AI Connector</Bundle-Name>
+                        <Bundle-Vendor>Ping Identity Corporation</Bundle-Vendor>
+                        <Bundle-Version>${project.version}</Bundle-Version>
+                        <Bundle-RequiredExecutionEnvironment>JavaSE-17</Bundle-RequiredExecutionEnvironment>
+
+                        <ConnectorBundle-Name>org.forgerock.openicf.connectors.googlevertexai-connector</ConnectorBundle-Name>
+                        <ConnectorBundle-FrameworkVersion>1.5</ConnectorBundle-FrameworkVersion>
+                        <ConnectorBundle-Version>${project.version}</ConnectorBundle-Version>
+
+                        <Implementation-Build>0</Implementation-Build>
+                        <Implementation-Title>Google Vertex AI Connector</Implementation-Title>
+                        <Implementation-Vendor>Ping Identity Corporation</Implementation-Vendor>
+                        <Implementation-Vendor-Id>org.forgerock.openicf.connectors</Implementation-Vendor-Id>
+                        <Implementation-Version>${project.version}</Implementation-Version>
+
+                        <Embed-Dependency>jackson-databind,jackson-core,jackson-annotations</Embed-Dependency>
+                        <Embed-Transitive>false</Embed-Transitive>
+                        <Embed-Directory>lib</Embed-Directory>
+
+                        <Export-Package>
+                            org.forgerock.openicf.connectors.googlevertexai,
+                            org.forgerock.openicf.connectors.googlevertexai.client,
+                            org.forgerock.openicf.connectors.googlevertexai.operations,
+                            org.forgerock.openicf.connectors.googlevertexai.utils
+                        </Export-Package>
+                        <Import-Package>org.identityconnectors.*;version="1.5",*</Import-Package>
+                    </instructions>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 </project>

@@ -369,12 +369,26 @@ public class GoogleVertexAICrudService {
         addIfPresent(b, GoogleVertexAIConstants.ATTR_AGENT_FRAMEWORK, agent.getAgentFramework());
         addIfPresent(b, GoogleVertexAIConstants.ATTR_SERVICE_ACCOUNT, agent.getServiceAccount());
 
-        // Fetch tools for this agent to populate toolIds and toolsRaw
+        // Fetch tools for this agent to populate toolIds, toolsRaw, and toolAuthSummary
         List<GoogleVertexToolDescriptor> tools = client.listTools(agent.getResourceName());
         if (!tools.isEmpty()) {
             List<String> toolNames = new ArrayList<>();
+            List<String> authSummaries = new ArrayList<>();
             for (GoogleVertexToolDescriptor t : tools) {
                 toolNames.add(t.getName());
+                // OPENICF-4011: build per-tool auth summary entry
+                try {
+                    Map<String, String> entry = new LinkedHashMap<>();
+                    entry.put("toolId", t.getName());
+                    entry.put("toolType", t.getToolType());
+                    entry.put("authType", t.getAuthType() != null ? t.getAuthType() : "NONE");
+                    if (t.getCredentialRef() != null) {
+                        entry.put("credentialRef", t.getCredentialRef());
+                    }
+                    authSummaries.add(OBJECT_MAPPER.writeValueAsString(entry));
+                } catch (JsonProcessingException e) {
+                    LOG.warn("Failed to serialize toolAuthSummary entry for tool {0}", t.getName());
+                }
             }
             b.addAttribute(AttributeBuilder.build(
                     GoogleVertexAIConstants.ATTR_AGENT_TOOL_IDS, toolNames));
@@ -385,6 +399,11 @@ public class GoogleVertexAICrudService {
                         GoogleVertexAIConstants.ATTR_TOOLS_RAW, toolsJson));
             } catch (JsonProcessingException e) {
                 LOG.warn("Failed to serialize tool IDs for agent {0}", agent.getResourceName());
+            }
+
+            if (!authSummaries.isEmpty()) {
+                b.addAttribute(AttributeBuilder.build(
+                        GoogleVertexAIConstants.ATTR_TOOL_AUTH_SUMMARY, authSummaries));
             }
         }
 

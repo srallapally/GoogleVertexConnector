@@ -59,6 +59,9 @@ public abstract class GoogleVertexAIConstants {
     // Raw tools payload serialized as JSON
     public static final String ATTR_TOOLS_RAW = "toolsRaw";
 
+    // OPENICF-4011: per-tool auth summary (multi-valued JSON strings on agent OC)
+    public static final String ATTR_TOOL_AUTH_SUMMARY = "toolAuthSummary";
+
     // Relationship: Agent → Tools (multi-valued tool resource names)
     public static final String ATTR_AGENT_TOOL_IDS = "toolIds";
 
