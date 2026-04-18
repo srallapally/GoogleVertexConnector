@@ -7,8 +7,6 @@ import org.identityconnectors.common.security.GuardedString;
 import org.identityconnectors.framework.spi.AbstractConfiguration;
 import org.identityconnectors.framework.spi.ConfigurationProperty;
 
-import java.util.List;
-
 import static org.forgerock.openicf.connectors.googlevertexai.utils.GoogleVertexAIConstants.FLAVOR_DIALOGFLOW_CX;
 import static org.forgerock.openicf.connectors.googlevertexai.utils.GoogleVertexAIConstants.FLAVOR_VERTEX_AI;
 
@@ -34,13 +32,10 @@ public class GoogleVertexAIConfiguration extends AbstractConfiguration {
     private String agentNameFilterRegex;
 
     private String organizationId;           // For org-wide scanning
-    private String folderId;                 // Optional folder scope (future use)
-    private List<String> regions;            // Multi-region support (future use)
-    private boolean useCloudAssetApi = false; // Enable org-wide mode (future use)
+    private boolean useCloudAssetApi = false; // Enable org-wide mode via Cloud Asset API
 
-    // OPENICF-4001: Service account discovery
-    private boolean discoverServiceAccounts = true;
-    private boolean includeServiceAccountKeys = true;
+    // OPENICF-4007: GCS inventory base URL for offline artifact reads
+    private String gcsInventoryBaseUrl;
 
     // ---------------------------------------------------------------------
     // Getters / setters
@@ -161,37 +156,24 @@ public class GoogleVertexAIConfiguration extends AbstractConfiguration {
         this.organizationId = organizationId;
     }
 
+    // OPENICF-4007: GCS inventory base URL
     @ConfigurationProperty(
             order = 9,
-            displayMessageKey = "discoverServiceAccounts.display",
-            helpMessageKey = "discoverServiceAccounts.help",
+            displayMessageKey = "gcsInventoryBaseUrl.display",
+            helpMessageKey = "gcsInventoryBaseUrl.help",
             required = false
     )
-    public boolean isDiscoverServiceAccounts() {
-        return discoverServiceAccounts;
+    public String getGcsInventoryBaseUrl() {
+        return gcsInventoryBaseUrl;
     }
 
-    public void setDiscoverServiceAccounts(boolean discoverServiceAccounts) {
-        this.discoverServiceAccounts = discoverServiceAccounts;
-    }
-
-    @ConfigurationProperty(
-            order = 10,
-            displayMessageKey = "includeServiceAccountKeys.display",
-            helpMessageKey = "includeServiceAccountKeys.help",
-            required = false
-    )
-    public boolean isIncludeServiceAccountKeys() {
-        return includeServiceAccountKeys;
-    }
-
-    public void setIncludeServiceAccountKeys(boolean includeServiceAccountKeys) {
-        this.includeServiceAccountKeys = includeServiceAccountKeys;
+    public void setGcsInventoryBaseUrl(String gcsInventoryBaseUrl) {
+        this.gcsInventoryBaseUrl = gcsInventoryBaseUrl;
     }
 
     // OPENICF-4003: Org-wide agent scanning via Cloud Asset API
     @ConfigurationProperty(
-            order = 11,
+            order = 10,
             displayMessageKey = "useCloudAssetApi.display",
             helpMessageKey = "useCloudAssetApi.help",
             required = false
@@ -241,12 +223,17 @@ public class GoogleVertexAIConfiguration extends AbstractConfiguration {
                     "organizationId must be specified when useCloudAssetApi is enabled.");
         }
 
-        // OPENICF-4001, OPENICF-4003: Log configuration
+        // OPENICF-4007: Validate GCS inventory configuration
+        if (identityBindingScanEnabled && StringUtil.isBlank(gcsInventoryBaseUrl)) {
+            throw new IllegalArgumentException(
+                    "gcsInventoryBaseUrl must be specified when identityBindingScanEnabled is true.");
+        }
+
         LOG.ok("GoogleVertexAIConfiguration validated. projectId={0}, location={1}, " +
                         "agentApiFlavor={2}, useWorkloadIdentity={3}, identityBindingScanEnabled={4}, " +
-                        "organizationId={5}, discoverServiceAccounts={6}, includeServiceAccountKeys={7}, " +
-                        "useCloudAssetApi={8}",
+                        "organizationId={5}, useCloudAssetApi={6}, gcsInventoryBaseUrl={7}",
                 projectId, location, agentApiFlavor, useWorkloadIdentity, identityBindingScanEnabled,
-                organizationId, discoverServiceAccounts, includeServiceAccountKeys, useCloudAssetApi);
+                organizationId, useCloudAssetApi,
+                gcsInventoryBaseUrl != null ? "[set]" : "[not set]");
     }
 }

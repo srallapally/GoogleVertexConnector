@@ -170,6 +170,9 @@ public class GoogleVertexAIConnector implements
                 GoogleVertexAIConstants.ATTR_TOOL_TYPE, String.class));
         toolOc.addAttributeInfo(AttributeInfoBuilder.build(
                 GoogleVertexAIConstants.ATTR_TOOL_ENDPOINT, String.class));
+        // OPENICF-4010: search-safe tool identifier ('/' replaced by '_')
+        toolOc.addAttributeInfo(AttributeInfoBuilder.build(
+                GoogleVertexAIConstants.ATTR_TOOL_KEY, String.class));
 
         builder.defineObjectClass(toolOc.build());
 

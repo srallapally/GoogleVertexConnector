@@ -62,6 +62,9 @@ public abstract class GoogleVertexAIConstants {
     // OPENICF-4011: per-tool auth summary (multi-valued JSON strings on agent OC)
     public static final String ATTR_TOOL_AUTH_SUMMARY = "toolAuthSummary";
 
+    // OPENICF-4010: search-safe tool identifier (toolId with '/' replaced by '_')
+    public static final String ATTR_TOOL_KEY = "toolKey";
+
     // Relationship: Agent → Tools (multi-valued tool resource names)
     public static final String ATTR_AGENT_TOOL_IDS = "toolIds";
 

@@ -18,6 +18,8 @@ public class GoogleVertexToolDescriptor {
     // OPENICF-4011: tool authentication metadata
     private final String authType;      // SERVICE_ACCOUNT, OAUTH, API_KEY, NONE
     private final String credentialRef; // SA email or secret resource name; never secret value
+    // OPENICF-4010: search-safe tool identifier ('/' replaced by '_')
+    private final String toolKey;
 
     public GoogleVertexToolDescriptor(String name,
                                       String displayName,
@@ -26,7 +28,8 @@ public class GoogleVertexToolDescriptor {
                                       String endpoint,
                                       String agentResourceName,
                                       String authType,
-                                      String credentialRef) {
+                                      String credentialRef,
+                                      String toolKey) {
         this.name = name;
         this.displayName = displayName;
         this.toolType = toolType;
@@ -35,6 +38,7 @@ public class GoogleVertexToolDescriptor {
         this.agentResourceName = agentResourceName;
         this.authType = authType;
         this.credentialRef = credentialRef;
+        this.toolKey = toolKey;
     }
 
     public String getName() {
@@ -68,5 +72,10 @@ public class GoogleVertexToolDescriptor {
 
     public String getCredentialRef() {
         return credentialRef;
+    }
+
+    // OPENICF-4010
+    public String getToolKey() {
+        return toolKey;
     }
 }

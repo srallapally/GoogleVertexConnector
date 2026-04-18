@@ -85,6 +85,17 @@ public class GoogleVertexAIClient implements AutoCloseable, Closeable {
     }
 
     /**
+     * Constructor for workload identity authentication with org-wide scanning (BUG-2).
+     */
+    public GoogleVertexAIClient(String projectId,
+                                String location,
+                                String agentApiFlavor,
+                                String organizationId,
+                                boolean useCloudAssetApi) {
+        this(projectId, location, agentApiFlavor, true, null, organizationId, useCloudAssetApi);
+    }
+
+    /**
      * Constructor for service account key authentication.
      */
     public GoogleVertexAIClient(String projectId,
@@ -638,6 +649,7 @@ public class GoogleVertexAIClient implements AutoCloseable, Closeable {
         tools.addAll(fetchWebhooks(agentResourceName));
 
         toolsCache.put(agentResourceName, Collections.unmodifiableList(tools));
+        cacheLoadedAt = Instant.now(); // BUG-1: was never set; cache was always invalid
         return tools;
     }
 
@@ -804,6 +816,7 @@ public class GoogleVertexAIClient implements AutoCloseable, Closeable {
         } while (pageToken != null);
 
         dataStoreCache.put(agentResourceName, Collections.unmodifiableList(stores));
+        cacheLoadedAt = Instant.now(); // BUG-1: was never set; cache was always invalid
         return stores;
     }
 
@@ -819,336 +832,74 @@ public class GoogleVertexAIClient implements AutoCloseable, Closeable {
     }
 
     // ---------------------------------------------------------------------
-    // IAM bindings (per agent, opt-in)
+    // GCS inventory reads (OPENICF-4007)
+    //
+    // Identity bindings, service accounts, and tool credentials are now
+    // collected by the offline Python job and written to GCS. The connector
+    // reads those artifacts here via unauthenticated HTTPS GET — the
+    // pre-signed URL is self-authenticating, so no Authorization header
+    // is sent. On any HTTP error or I/O failure, ConnectorException is
+    // thrown immediately; there is no silent empty fallback.
     // ---------------------------------------------------------------------
 
     /**
-     * Fetch IAM policy bindings for a specific agent resource.
-     * OPENICF-4002: Improved error handling with status-specific logging.
+     * Fetch identity-bindings.json from GCS.
      *
-     * @param agentResourceName full resource name (e.g., projects/p/locations/l/agents/id)
-     * @return list of IAM bindings, empty if no bindings or on permission/API errors
+     * @param gcsInventoryBaseUrl pre-signed GCS base URL (no trailing slash)
+     * @return parsed JSON root node of the artifact
+     * @throws org.identityconnectors.framework.common.exceptions.ConnectorException on HTTP non-2xx or I/O failure
      */
-    public List<GoogleVertexIamBindingDescriptor> getIamBindings(String agentResourceName) {
-        String url = baseUrl() + "/" + agentResourceName + ":getIamPolicy";
-        return fetchIamBindings(url, agentResourceName, "agent");
+    public JsonNode fetchGcsIdentityBindings(String gcsInventoryBaseUrl) {
+        // OPENICF-4007: identity bindings are produced by the offline Python job
+        return fetchGcsArtifact(gcsInventoryBaseUrl, "identity-bindings.json");
     }
 
     /**
-     * Fetch IAM policy bindings for a service account (OPENICF-4002).
+     * Fetch service-accounts.json from GCS.
      *
-     * <p>Discovers who can impersonate or manage the service account via roles like:
-     * <ul>
-     *   <li>roles/iam.serviceAccountUser — can run operations as the SA</li>
-     *   <li>roles/iam.serviceAccountTokenCreator — can create tokens for the SA</li>
-     *   <li>roles/iam.serviceAccountAdmin — full control over the SA</li>
-     * </ul>
+     * @param gcsInventoryBaseUrl pre-signed GCS base URL (no trailing slash)
+     * @return parsed JSON root node of the artifact
+     * @throws org.identityconnectors.framework.common.exceptions.ConnectorException on HTTP non-2xx or I/O failure
+     */
+    public JsonNode fetchGcsServiceAccounts(String gcsInventoryBaseUrl) {
+        // OPENICF-4007: service accounts are produced by the offline Python job
+        return fetchGcsArtifact(gcsInventoryBaseUrl, "service-accounts.json");
+    }
+
+    /**
+     * Fetch tool-credentials.json from GCS.
      *
-     * @param saResourceName full SA resource name (e.g., projects/p/serviceAccounts/email)
-     * @return list of IAM bindings, empty if no bindings or on permission/API errors
+     * @param gcsInventoryBaseUrl pre-signed GCS base URL (no trailing slash)
+     * @return parsed JSON root node of the artifact
+     * @throws org.identityconnectors.framework.common.exceptions.ConnectorException on HTTP non-2xx or I/O failure
      */
-    public List<GoogleVertexIamBindingDescriptor> getServiceAccountIamBindings(String saResourceName) {
-        // IAM API endpoint: POST https://iam.googleapis.com/v1/{resource}:getIamPolicy
-        String url = "https://iam.googleapis.com/v1/" + saResourceName + ":getIamPolicy";
-        return fetchIamBindings(url, saResourceName, "serviceAccount");
+    public JsonNode fetchGcsToolCredentials(String gcsInventoryBaseUrl) {
+        // OPENICF-4007: tool credentials are produced by the offline Python job
+        return fetchGcsArtifact(gcsInventoryBaseUrl, "tool-credentials.json");
     }
 
     /**
-     * Common IAM policy fetch logic with improved error handling (OPENICF-4002).
+     * Common unauthenticated GET for a named GCS artifact.
      *
-     * @param url          full URL including :getIamPolicy suffix
-     * @param resourceName resource name for logging and binding ID construction
-     * @param resourceType "agent" or "serviceAccount" for logging context
-     * @return list of IAM bindings, empty on errors
-     */
-    private List<GoogleVertexIamBindingDescriptor> fetchIamBindings(String url,
-                                                                    String resourceName,
-                                                                    String resourceType) {
-        try {
-            HttpRequest request = authedRequestBuilder(url)
-                    .POST(HttpRequest.BodyPublishers.ofString("{}"))
-                    .build();
-
-            HttpResponse<String> response = httpClient.send(
-                    request, HttpResponse.BodyHandlers.ofString());
-
-            int status = response.statusCode();
-
-            // OPENICF-4002: Status-specific error handling
-            if (status / 100 != 2) {
-                logIamPolicyError(status, resourceName, resourceType, response.body());
-                return Collections.emptyList();
-            }
-
-            JsonNode root = objectMapper.readTree(response.body());
-            List<GoogleVertexIamBindingDescriptor> result = new ArrayList<>();
-
-            if (root.has("bindings") && root.get("bindings").isArray()) {
-                for (JsonNode bindingNode : root.get("bindings")) {
-                    String role = optText(bindingNode, "role");
-                    if (role == null) {
-                        continue;
-                    }
-
-                    if (bindingNode.has("members") && bindingNode.get("members").isArray()) {
-                        for (JsonNode memberNode : bindingNode.get("members")) {
-                            String member = memberNode.asText();
-                            String memberType = GoogleVertexIamBindingDescriptor.deriveMemberType(member);
-                            String id = resourceName + ":" + role + ":" + member;
-
-                            result.add(new GoogleVertexIamBindingDescriptor(
-                                    id, resourceName, role, member, memberType));
-                        }
-                    }
-                }
-            }
-
-            if (!result.isEmpty()) {
-                LOG.ok("Found {0} IAM bindings for {1} {2}", result.size(), resourceType, resourceName);
-            }
-
-            return result;
-        } catch (IOException | InterruptedException e) {
-            LOG.error(e, "Error fetching IAM policy for {0} {1}", resourceType, resourceName);
-            return Collections.emptyList();
-        }
-    }
-
-    /**
-     * Log IAM policy fetch errors with appropriate severity (OPENICF-4002).
-     */
-    private void logIamPolicyError(int status, String resourceName, String resourceType, String body) {
-        // Truncate body for logging
-        String truncatedBody = body != null && body.length() > 200
-                ? body.substring(0, 200) + "..."
-                : body;
-
-        if (status == 403) {
-            // Permission denied — expected if caller lacks getIamPolicy permission
-            LOG.info("Permission denied (403) fetching IAM policy for {0} {1}. " +
-                            "Ensure caller has {2}.getIamPolicy permission.",
-                    resourceType, resourceName,
-                    "serviceAccount".equals(resourceType) ? "iam.serviceAccounts" : "aiplatform.reasoningEngines");
-        } else if (status == 404) {
-            // Resource not found — may have been deleted between list and getIamPolicy
-            LOG.warn("Resource not found (404) when fetching IAM policy for {0} {1}",
-                    resourceType, resourceName);
-        } else if (status == 400) {
-            // Bad request — API may not support resource-level IAM
-            LOG.info("Bad request (400) fetching IAM policy for {0} {1}. " +
-                            "Resource-level IAM may not be supported. Body: {2}",
-                    resourceType, resourceName, truncatedBody);
-        } else if (status >= 500) {
-            // Server error — transient, log as error but continue
-            LOG.error("Server error ({0}) fetching IAM policy for {1} {2}. Body: {3}",
-                    status, resourceType, resourceName, truncatedBody);
-        } else {
-            // Other client errors
-            LOG.warn("HTTP {0} fetching IAM policy for {1} {2}. Body: {3}",
-                    status, resourceType, resourceName, truncatedBody);
-        }
-    }
-
-    /**
-     * List all IAM bindings across all agents and service accounts (OPENICF-4002).
+     * <p>No Authorization header is sent — the pre-signed URL carries all
+     * credentials in its query parameters. Sending a Bearer token alongside
+     * a SAS/pre-signed URL causes GCS to return 400 InvalidAuthenticationInfo,
+     * matching the same pattern used in the Copilot connector.
      *
-     * <p>When service account discovery is enabled, also fetches IAM bindings
-     * for each service account to discover who can impersonate them.
-     *
-     * @param includeServiceAccounts if true, also fetch SA IAM bindings
-     * @return combined list of agent and service account IAM bindings
+     * @param baseUrl      pre-signed GCS base URL, no trailing slash
+     * @param artifactName file name, e.g. "identity-bindings.json"
+     * @return parsed JSON root node
+     * @throws org.identityconnectors.framework.common.exceptions.ConnectorException on any failure
      */
-    public List<GoogleVertexIamBindingDescriptor> listAllIamBindings(boolean includeServiceAccounts) {
-        List<GoogleVertexIamBindingDescriptor> all = new ArrayList<>();
-
-        // Agent IAM bindings
-        for (GoogleVertexAgentDescriptor agent : listAgents()) {
-            all.addAll(getIamBindings(agent.getResourceName()));
-        }
-        LOG.ok("Collected {0} IAM bindings from agents", all.size());
-
-        // OPENICF-4002: Service account IAM bindings
-        if (includeServiceAccounts) {
-            int agentBindingCount = all.size();
-            for (GoogleVertexServiceAccountDescriptor sa : listServiceAccounts()) {
-                all.addAll(getServiceAccountIamBindings(sa.getName()));
-            }
-            LOG.ok("Collected {0} IAM bindings from service accounts",
-                    all.size() - agentBindingCount);
-        }
-
-        return all;
-    }
-
-    /**
-     * List all IAM bindings across all agents.
-     * @deprecated Use {@link #listAllIamBindings(boolean)} instead
-     */
-    @Deprecated
-    public List<GoogleVertexIamBindingDescriptor> listAllIamBindings() {
-        return listAllIamBindings(false);
-    }
-
-    // ---------------------------------------------------------------------
-    // Service account listing (OPENICF-4001)
-    // ---------------------------------------------------------------------
-
-    /**
-     * List service accounts. Uses Cloud Asset API if organizationId is set,
-     * otherwise falls back to IAM API for project-scoped discovery.
-     */
-    public List<GoogleVertexServiceAccountDescriptor> listServiceAccounts() {
-        if (organizationId != null && !organizationId.isEmpty()) {
-            return listServiceAccountsViaCloudAsset();
-        }
-        return listServiceAccountsViaIam();
-    }
-
-    /**
-     * Org-wide discovery via Cloud Asset API.
-     * GET https://cloudasset.googleapis.com/v1/organizations/{orgId}:searchAllResources
-     *     ?assetTypes=iam.googleapis.com/ServiceAccount
-     */
-    private List<GoogleVertexServiceAccountDescriptor> listServiceAccountsViaCloudAsset() {
-        List<GoogleVertexServiceAccountDescriptor> all = new ArrayList<>();
-        String pageToken = null;
-
-        do {
-            StringBuilder url = new StringBuilder("https://cloudasset.googleapis.com/v1/organizations/")
-                    .append(organizationId)
-                    .append(":searchAllResources")
-                    .append("?assetTypes=iam.googleapis.com/ServiceAccount")
-                    .append("&pageSize=100");
-
-            if (pageToken != null && !pageToken.isEmpty()) {
-                url.append("&pageToken=").append(urlEncode(pageToken));
-            }
-
-            try {
-                HttpRequest request = authedRequestBuilder(url.toString())
-                        .GET()
-                        .build();
-
-                HttpResponse<String> response = httpClient.send(
-                        request, HttpResponse.BodyHandlers.ofString());
-
-                if (response.statusCode() / 100 != 2) {
-                    throw new RuntimeException("listServiceAccountsViaCloudAsset failed: HTTP "
-                            + response.statusCode() + " body=" + response.body());
-                }
-
-                JsonNode root = objectMapper.readTree(response.body());
-
-                if (root.has("results") && root.get("results").isArray()) {
-                    for (JsonNode node : root.get("results")) {
-                        GoogleVertexServiceAccountDescriptor sa = parseCloudAssetServiceAccountNode(node);
-                        if (sa != null) {
-                            all.add(sa);
-                        }
-                    }
-                }
-
-                pageToken = optText(root, "nextPageToken");
-            } catch (IOException | InterruptedException e) {
-                throw new RuntimeException("Error calling Cloud Asset API for service accounts", e);
-            }
-        } while (pageToken != null);
-
-        return all;
-    }
-
-    /**
-     * Project-scoped discovery via IAM API.
-     * GET https://iam.googleapis.com/v1/projects/{projectId}/serviceAccounts
-     */
-    private List<GoogleVertexServiceAccountDescriptor> listServiceAccountsViaIam() {
-        List<GoogleVertexServiceAccountDescriptor> all = new ArrayList<>();
-        String pageToken = null;
-
-        do {
-            StringBuilder url = new StringBuilder("https://iam.googleapis.com/v1/projects/")
-                    .append(projectId)
-                    .append("/serviceAccounts")
-                    .append("?pageSize=100");
-
-            if (pageToken != null && !pageToken.isEmpty()) {
-                url.append("&pageToken=").append(urlEncode(pageToken));
-            }
-
-            try {
-                HttpRequest request = authedRequestBuilder(url.toString())
-                        .GET()
-                        .build();
-
-                HttpResponse<String> response = httpClient.send(
-                        request, HttpResponse.BodyHandlers.ofString());
-
-                if (response.statusCode() / 100 != 2) {
-                    throw new RuntimeException("listServiceAccountsViaIam failed: HTTP "
-                            + response.statusCode() + " body=" + response.body());
-                }
-
-                JsonNode root = objectMapper.readTree(response.body());
-
-                if (root.has("accounts") && root.get("accounts").isArray()) {
-                    for (JsonNode node : root.get("accounts")) {
-                        GoogleVertexServiceAccountDescriptor sa = parseIamServiceAccountNode(node);
-                        if (sa != null) {
-                            all.add(sa);
-                        }
-                    }
-                }
-
-                pageToken = optText(root, "nextPageToken");
-            } catch (IOException | InterruptedException e) {
-                throw new RuntimeException("Error calling IAM API for service accounts", e);
-            }
-        } while (pageToken != null);
-
-        return all;
-    }
-
-    /**
-     * Get single service account details.
-     * GET https://iam.googleapis.com/v1/{saResourceName}
-     */
-    public GoogleVertexServiceAccountDescriptor getServiceAccount(String saResourceName) {
-        String url = "https://iam.googleapis.com/v1/" + saResourceName;
+    private JsonNode fetchGcsArtifact(String baseUrl, String artifactName) {
+        String url = baseUrl + "/" + artifactName;
+        LOG.ok("Fetching GCS artifact: {0}", url);
 
         try {
-            HttpRequest request = authedRequestBuilder(url)
-                    .GET()
-                    .build();
-
-            HttpResponse<String> response = httpClient.send(
-                    request, HttpResponse.BodyHandlers.ofString());
-
-            if (response.statusCode() == 404) {
-                return null;
-            }
-            if (response.statusCode() / 100 != 2) {
-                throw new RuntimeException("getServiceAccount failed: HTTP "
-                        + response.statusCode() + " body=" + response.body());
-            }
-
-            JsonNode node = objectMapper.readTree(response.body());
-            return parseIamServiceAccountNode(node);
-        } catch (IOException | InterruptedException e) {
-            throw new RuntimeException("Error calling getServiceAccount", e);
-        }
-    }
-
-    /**
-     * List keys for a service account.
-     * GET https://iam.googleapis.com/v1/{saResourceName}/keys
-     *
-     * @return JSON array string of key metadata
-     */
-    public String listServiceAccountKeysJson(String saResourceName) {
-        String url = "https://iam.googleapis.com/v1/" + saResourceName + "/keys";
-
-        try {
-            HttpRequest request = authedRequestBuilder(url)
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .timeout(requestTimeout)
+                    .header("Accept", "application/json")
                     .GET()
                     .build();
 
@@ -1156,60 +907,19 @@ public class GoogleVertexAIClient implements AutoCloseable, Closeable {
                     request, HttpResponse.BodyHandlers.ofString());
 
             if (response.statusCode() / 100 != 2) {
-                // May not have permission — return empty array
-                return "[]";
+                throw new org.identityconnectors.framework.common.exceptions.ConnectorException(
+                        "Failed to fetch GCS artifact " + artifactName
+                                + ": HTTP " + response.statusCode()
+                                + " body=" + response.body());
             }
 
-            JsonNode root = objectMapper.readTree(response.body());
-            if (root.has("keys") && root.get("keys").isArray()) {
-                // Build a simplified JSON array with key metadata
-                List<Map<String, Object>> keys = new ArrayList<>();
-                for (JsonNode keyNode : root.get("keys")) {
-                    Map<String, Object> keyMap = new LinkedHashMap<>();
-                    keyMap.put("keyId", extractKeyIdFromName(optText(keyNode, "name")));
-                    keyMap.put("keyAlgorithm", optText(keyNode, "keyAlgorithm"));
-                    keyMap.put("keyOrigin", optText(keyNode, "keyOrigin"));
-                    keyMap.put("keyType", optText(keyNode, "keyType"));
-                    keyMap.put("createTime", optText(keyNode, "validAfterTime"));
-                    keyMap.put("expireTime", optText(keyNode, "validBeforeTime"));
-                    keyMap.put("disabled", keyNode.has("disabled") && keyNode.get("disabled").asBoolean());
-                    keys.add(keyMap);
-                }
-                return objectMapper.writeValueAsString(keys);
-            }
-            return "[]";
+            return objectMapper.readTree(response.body());
+        } catch (org.identityconnectors.framework.common.exceptions.ConnectorException e) {
+            throw e;
         } catch (IOException | InterruptedException e) {
-            throw new RuntimeException("Error listing service account keys", e);
+            throw new org.identityconnectors.framework.common.exceptions.ConnectorException(
+                    "I/O error fetching GCS artifact " + artifactName + ": " + e.getMessage(), e);
         }
-    }
-
-    /**
-     * Extract key ID from full key resource name.
-     * e.g. "projects/p1/serviceAccounts/sa@p1.iam.gserviceaccount.com/keys/abc123" → "abc123"
-     */
-    private String extractKeyIdFromName(String keyName) {
-        if (keyName == null) {
-            return null;
-        }
-        int idx = keyName.lastIndexOf('/');
-        return idx >= 0 ? keyName.substring(idx + 1) : keyName;
-    }
-
-    /**
-     * Find agents that use the given service account (lazy-load).
-     * Scans all agents and filters by serviceAccount field.
-     *
-     * <p>Only Vertex AI Agent Engine agents have a serviceAccount field;
-     * Dialogflow CX agents do not expose this.
-     */
-    public List<String> getLinkedAgentsForServiceAccount(String saEmail) {
-        List<String> linkedAgents = new ArrayList<>();
-        for (GoogleVertexAgentDescriptor agent : listAgents()) {
-            if (saEmail != null && saEmail.equals(agent.getServiceAccount())) {
-                linkedAgents.add(agent.getResourceName());
-            }
-        }
-        return linkedAgents;
     }
 
     // ---------------------------------------------------------------------
@@ -1431,7 +1141,8 @@ public class GoogleVertexAIClient implements AutoCloseable, Closeable {
                 null, // tools don't have a direct endpoint
                 agentResourceName,
                 "NONE", // OPENICF-4011: CX tools have no auth config at the tool level
-                null
+                null,
+                name.replace("/", "_") // OPENICF-4010: toolKey
         );
     }
 
@@ -1456,7 +1167,7 @@ public class GoogleVertexAIClient implements AutoCloseable, Closeable {
             } else if (gws.has("oauthConfig")) {
                 authType = "OAUTH";
             } else if (gws.has("requestHeaders")
-                    && gws.get("requestHeaders").isArray()
+                    && gws.get("requestHeaders").isObject()
                     && gws.get("requestHeaders").size() > 0) {
                 authType = "API_KEY";
             }
@@ -1474,7 +1185,8 @@ public class GoogleVertexAIClient implements AutoCloseable, Closeable {
                 endpoint,
                 agentResourceName,
                 authType,
-                credentialRef
+                credentialRef,
+                name.replace("/", "_") // OPENICF-4010: toolKey
         );
     }
 
@@ -1491,104 +1203,6 @@ public class GoogleVertexAIClient implements AutoCloseable, Closeable {
                 optText(node, "dataStoreType"),
                 null, // status not in list response
                 agentResourceName
-        );
-    }
-
-    /**
-     * Parse service account from IAM API response (OPENICF-4001).
-     *
-     * IAM API returns:
-     * - name: projects/{project}/serviceAccounts/{email}
-     * - projectId
-     * - uniqueId
-     * - email
-     * - displayName
-     * - description
-     * - disabled
-     * - oauth2ClientId
-     */
-    private GoogleVertexServiceAccountDescriptor parseIamServiceAccountNode(JsonNode node) {
-        if (node == null) {
-            return null;
-        }
-
-        String name = optText(node, "name");
-        if (name == null || name.isEmpty()) {
-            return null;
-        }
-
-        return new GoogleVertexServiceAccountDescriptor(
-                name,
-                optText(node, "email"),
-                optText(node, "displayName"),
-                optText(node, "description"),
-                optText(node, "projectId"),
-                optText(node, "uniqueId"),
-                node.has("disabled") && node.get("disabled").asBoolean(),
-                null, // createTime not in IAM list response
-                optText(node, "oauth2ClientId"),
-                null, // linkedAgentIds populated lazily
-                null, // keysJson populated separately
-                0     // keyCount populated separately
-        );
-    }
-
-    /**
-     * Parse service account from Cloud Asset API response (OPENICF-4001).
-     *
-     * Cloud Asset API returns:
-     * - name: //iam.googleapis.com/projects/{project}/serviceAccounts/{email}
-     * - displayName
-     * - description
-     * - project (project number, not ID)
-     * - additionalAttributes may contain more fields
-     */
-    private GoogleVertexServiceAccountDescriptor parseCloudAssetServiceAccountNode(JsonNode node) {
-        if (node == null) {
-            return null;
-        }
-
-        String assetName = optText(node, "name");
-        if (assetName == null || assetName.isEmpty()) {
-            return null;
-        }
-
-        // Convert Cloud Asset name to IAM resource name
-        // //iam.googleapis.com/projects/{project}/serviceAccounts/{email}
-        // → projects/{project}/serviceAccounts/{email}
-        String iamName = assetName.startsWith("//iam.googleapis.com/")
-                ? assetName.substring("//iam.googleapis.com/".length())
-                : assetName;
-
-        // Extract email from the resource name
-        String email = null;
-        int saIdx = iamName.lastIndexOf("/serviceAccounts/");
-        if (saIdx >= 0) {
-            email = iamName.substring(saIdx + "/serviceAccounts/".length());
-        }
-
-        // Extract project from the resource name
-        String saProjectId = null;
-        if (iamName.startsWith("projects/")) {
-            int endIdx = iamName.indexOf("/", "projects/".length());
-            if (endIdx > 0) {
-                saProjectId = iamName.substring("projects/".length(), endIdx);
-            }
-        }
-
-        return new GoogleVertexServiceAccountDescriptor(
-                iamName,
-                email,
-                optText(node, "displayName"),
-                optText(node, "description"),
-                saProjectId,
-                null, // uniqueId not in Cloud Asset response
-                false, // disabled not in Cloud Asset response
-                null, // createTime not in Cloud Asset response
-                null, // oauth2ClientId not in Cloud Asset response
-                null, // linkedAgentIds populated lazily
-                null, // keysJson populated separately
-                0     // keyCount populated separately
         );
     }
 

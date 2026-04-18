@@ -29,7 +29,10 @@ public class GoogleVertexAIConnection implements Closeable {
         String flavor = config.getAgentApiFlavor();
 
         if (config.isUseWorkloadIdentity()) {
-            return new GoogleVertexAIClient(projectId, location, flavor);
+            // BUG-2: previously dropped organizationId and useCloudAssetApi
+            String organizationId = config.getOrganizationId();
+            boolean useCloudAssetApi = config.isUseCloudAssetApi();
+            return new GoogleVertexAIClient(projectId, location, flavor, organizationId, useCloudAssetApi);
         } else {
             String keyJson = toPlainString(config.getServiceAccountKeyJson());
             // OPENICF-4001, OPENICF-4003: Pass organizationId and useCloudAssetApi

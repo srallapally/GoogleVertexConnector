@@ -157,6 +157,8 @@ public class GoogleVertexAICrudService {
         }
     }
 
+    // OPENICF-4007: Identity bindings are now read from the GCS artifact produced
+    // by the offline Python job. The live IAM getIamPolicy path has been removed.
     public void searchIdentityBindings(ObjectClass objectClass,
                                        Filter query,
                                        ResultsHandler handler,
@@ -164,22 +166,25 @@ public class GoogleVertexAICrudService {
         LOG.ok("searchIdentityBindings called for OC {0}", objectClass);
 
         if (!connection.getConfiguration().isIdentityBindingScanEnabled()) {
-            LOG.ok("Identity binding scan is disabled.");
+            LOG.ok("identityBindingScanEnabled=false; skipping agentIdentityBinding search");
             return;
         }
 
-        // OPENICF-4002: Include SA IAM bindings when SA discovery is enabled
-        boolean includeServiceAccounts = connection.getConfiguration().isDiscoverServiceAccounts();
-        List<GoogleVertexIamBindingDescriptor> bindings = client.listAllIamBindings(includeServiceAccounts);
-        if (bindings == null || bindings.isEmpty()) {
+        // Throws ConnectorException on HTTP non-2xx or I/O failure (Q29)
+        com.fasterxml.jackson.databind.JsonNode root =
+                client.fetchGcsIdentityBindings(connection.getConfiguration().getGcsInventoryBaseUrl());
+
+        com.fasterxml.jackson.databind.JsonNode bindingsNode = root.get("identityBindings");
+        if (bindingsNode == null || !bindingsNode.isArray() || bindingsNode.size() == 0) {
+            LOG.ok("No identity bindings in GCS artifact");
             return;
         }
 
         String matchUid = extractFilterValue(query, Uid.NAME);
         String matchName = extractFilterValue(query, NAME);
 
-        for (GoogleVertexIamBindingDescriptor binding : bindings) {
-            ConnectorObject co = toIdentityBindingConnectorObject(objectClass, binding);
+        for (com.fasterxml.jackson.databind.JsonNode node : bindingsNode) {
+            ConnectorObject co = toIdentityBindingConnectorObject(objectClass, node);
             if (co == null) {
                 continue;
             }
@@ -195,33 +200,34 @@ public class GoogleVertexAICrudService {
         }
     }
 
-    // OPENICF-4001: Service account search
+    // OPENICF-4007: Service accounts are now read from the GCS artifact produced
+    // by the offline Python job. The live IAM/Cloud Asset API path has been removed.
     public void searchServiceAccounts(ObjectClass objectClass,
                                       Filter query,
                                       ResultsHandler handler,
                                       OperationOptions options) {
         LOG.ok("searchServiceAccounts called for OC {0}", objectClass);
 
-        if (!connection.getConfiguration().isDiscoverServiceAccounts()) {
-            LOG.ok("Service account discovery is disabled.");
+        if (!connection.getConfiguration().isIdentityBindingScanEnabled()) {
+            LOG.ok("identityBindingScanEnabled=false; skipping serviceAccount search");
             return;
         }
 
-        List<GoogleVertexServiceAccountDescriptor> serviceAccounts = client.listServiceAccounts();
-        if (serviceAccounts == null || serviceAccounts.isEmpty()) {
+        // Throws ConnectorException on HTTP non-2xx or I/O failure (Q29)
+        com.fasterxml.jackson.databind.JsonNode root =
+                client.fetchGcsServiceAccounts(connection.getConfiguration().getGcsInventoryBaseUrl());
+
+        com.fasterxml.jackson.databind.JsonNode saNode = root.get("serviceAccounts");
+        if (saNode == null || !saNode.isArray() || saNode.size() == 0) {
+            LOG.ok("No service accounts in GCS artifact");
             return;
         }
 
         String matchUid = extractFilterValue(query, Uid.NAME);
         String matchName = extractFilterValue(query, NAME);
 
-        // Determine which expensive attributes to fetch (Q18)
-        boolean includeKeys = connection.getConfiguration().isIncludeServiceAccountKeys()
-                && isAttributeRequested(options, GoogleVertexAIConstants.ATTR_SA_KEYS);
-        boolean includeLinkedAgents = isAttributeRequested(options, GoogleVertexAIConstants.ATTR_SA_LINKED_AGENTS);
-
-        for (GoogleVertexServiceAccountDescriptor sa : serviceAccounts) {
-            ConnectorObject co = toServiceAccountConnectorObject(objectClass, sa, includeKeys, includeLinkedAgents);
+        for (com.fasterxml.jackson.databind.JsonNode node : saNode) {
+            ConnectorObject co = toServiceAccountConnectorObject(objectClass, node);
             if (co == null) {
                 continue;
             }
@@ -303,7 +309,9 @@ public class GoogleVertexAICrudService {
         return null;
     }
 
-    // OPENICF-4001: Get single service account
+    // OPENICF-4007: Get single service account from GCS artifact by UID lookup.
+    // The live IAM API path has been removed — service accounts are now produced
+    // by the offline Python job and read here via GCS pre-signed URL.
     public ConnectorObject getServiceAccount(ObjectClass objectClass,
                                              Uid uid,
                                              OperationOptions options) {
@@ -311,21 +319,28 @@ public class GoogleVertexAICrudService {
             return null;
         }
 
-        if (!connection.getConfiguration().isDiscoverServiceAccounts()) {
-            LOG.ok("Service account discovery is disabled.");
+        if (!connection.getConfiguration().isIdentityBindingScanEnabled()) {
+            LOG.ok("identityBindingScanEnabled=false; skipping serviceAccount GET");
             return null;
         }
 
-        GoogleVertexServiceAccountDescriptor sa = client.getServiceAccount(uid.getUidValue());
-        if (sa == null) {
+        // Throws ConnectorException on HTTP non-2xx or I/O failure (Q29)
+        com.fasterxml.jackson.databind.JsonNode root =
+                client.fetchGcsServiceAccounts(connection.getConfiguration().getGcsInventoryBaseUrl());
+
+        com.fasterxml.jackson.databind.JsonNode saNode = root.get("serviceAccounts");
+        if (saNode == null || !saNode.isArray()) {
             return null;
         }
 
-        // For single-object GET, always include expensive attributes (Q18)
-        boolean includeKeys = connection.getConfiguration().isIncludeServiceAccountKeys();
-        boolean includeLinkedAgents = true;
-
-        return toServiceAccountConnectorObject(objectClass, sa, includeKeys, includeLinkedAgents);
+        String targetUid = uid.getUidValue();
+        for (com.fasterxml.jackson.databind.JsonNode node : saNode) {
+            com.fasterxml.jackson.databind.JsonNode nameNode = node.get("name");
+            if (nameNode != null && targetUid.equals(nameNode.asText())) {
+                return toServiceAccountConnectorObject(objectClass, node);
+            }
+        }
+        return null;
     }
 
     // =================================================================
@@ -380,6 +395,7 @@ public class GoogleVertexAICrudService {
                 try {
                     Map<String, String> entry = new LinkedHashMap<>();
                     entry.put("toolId", t.getName());
+                    entry.put("toolKey", t.getToolKey()); // OPENICF-4010
                     entry.put("toolType", t.getToolType());
                     entry.put("authType", t.getAuthType() != null ? t.getAuthType() : "NONE");
                     if (t.getCredentialRef() != null) {
@@ -441,6 +457,7 @@ public class GoogleVertexAICrudService {
         addIfPresent(b, GoogleVertexAIConstants.ATTR_DESCRIPTION, tool.getDescription());
         addIfPresent(b, GoogleVertexAIConstants.ATTR_TOOL_TYPE, tool.getToolType());
         addIfPresent(b, GoogleVertexAIConstants.ATTR_TOOL_ENDPOINT, tool.getEndpoint());
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_TOOL_KEY, tool.getToolKey()); // OPENICF-4010
 
         return b.build();
     }
@@ -476,50 +493,53 @@ public class GoogleVertexAICrudService {
         return b.build();
     }
 
+    // OPENICF-4007: Maps a raw JSON node from identity-bindings.json (GCS artifact)
+    // to a ConnectorObject. Field names match the Python job's output schema.
     private ConnectorObject toIdentityBindingConnectorObject(ObjectClass objectClass,
-                                                             GoogleVertexIamBindingDescriptor binding) {
-        if (binding == null || binding.getId() == null) {
+                                                             com.fasterxml.jackson.databind.JsonNode node) {
+        if (node == null) {
+            return null;
+        }
+
+        String id = gcsText(node, "id");
+        if (id == null || id.isEmpty()) {
             return null;
         }
 
         ConnectorObjectBuilder b = new ConnectorObjectBuilder();
         b.setObjectClass(objectClass);
 
-        b.setUid(new Uid(binding.getId()));
-        b.setName(new Name(binding.getMember() + ":" + binding.getRole()));
+        b.setUid(new Uid(id));
+        // __NAME__: agentId:principal for human readability
+        String agentId = gcsText(node, "agentId");
+        String principal = gcsText(node, "principal");
+        b.setName(new Name(agentId + ":" + principal));
 
         b.addAttribute(AttributeBuilder.build(
                 GoogleVertexAIConstants.ATTR_PLATFORM,
                 GoogleVertexAIConstants.PLATFORM_VALUE));
 
-        addIfPresent(b, GoogleVertexAIConstants.ATTR_AGENT_ID, binding.getAgentResourceName());
-        addIfPresent(b, GoogleVertexAIConstants.ATTR_IAM_ROLE, binding.getRole());
-        addIfPresent(b, GoogleVertexAIConstants.ATTR_IAM_MEMBER, binding.getMember());
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_AGENT_ID, agentId);
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_PRINCIPAL, principal);
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_KIND, gcsText(node, "principalType"));
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_SCOPE, gcsText(node, "scopeType"));
+        addIfPresent(b, "scopeResourceName", gcsText(node, "scopeResourceName"));
+        addIfPresent(b, "sourceTag", gcsText(node, "sourceTag"));
+        addIfPresent(b, "confidence", gcsText(node, "confidence"));
+        addIfPresent(b, "flavor", gcsText(node, "flavor"));
 
-        b.addAttribute(AttributeBuilder.build(
-                GoogleVertexAIConstants.ATTR_KIND,
-                binding.getKind()));
-
-        // Pack principal info as JSON
-        try {
-            Map<String, String> principalData = new HashMap<>();
-            principalData.put("member", binding.getMember());
-            principalData.put("memberType", binding.getMemberType());
-            principalData.put("role", binding.getRole());
-
-            String principalJson = OBJECT_MAPPER.writeValueAsString(principalData);
-            b.addAttribute(AttributeBuilder.build(
-                    GoogleVertexAIConstants.ATTR_PRINCIPAL, principalJson));
-        } catch (JsonProcessingException e) {
-            LOG.warn("Failed to serialize principal for binding {0}", binding.getId());
+        // permissions: multi-valued string array from job output
+        com.fasterxml.jackson.databind.JsonNode perms = node.get("permissions");
+        if (perms != null && perms.isArray()) {
+            List<String> permList = new ArrayList<>();
+            for (com.fasterxml.jackson.databind.JsonNode p : perms) {
+                permList.add(p.asText());
+            }
+            if (!permList.isEmpty()) {
+                b.addAttribute(AttributeBuilder.build(
+                        GoogleVertexAIConstants.ATTR_PERMISSIONS, permList));
+            }
         }
-
-        // Permission = the IAM role (single entry)
-        b.addAttribute(AttributeBuilder.build(
-                GoogleVertexAIConstants.ATTR_PERMISSIONS,
-                Collections.singletonList(binding.getRole())));
-
-        addIfPresent(b, GoogleVertexAIConstants.ATTR_SCOPE, binding.getAgentResourceName());
 
         return b.build();
     }
@@ -565,12 +585,18 @@ public class GoogleVertexAICrudService {
         return b.build();
     }
 
-    // OPENICF-4001: Service account mapping
+    // OPENICF-4007: Maps a raw JSON node from service-accounts.json (GCS artifact)
+    // to a ConnectorObject. Field names match the Python job's output schema.
+    // Keys and linkedAgentIds are included as-is from the job output — the live
+    // per-SA fetch calls have been removed along with the live SA discovery path.
     private ConnectorObject toServiceAccountConnectorObject(ObjectClass objectClass,
-                                                            GoogleVertexServiceAccountDescriptor sa,
-                                                            boolean includeKeys,
-                                                            boolean includeLinkedAgents) {
-        if (sa == null || sa.getName() == null) {
+                                                            com.fasterxml.jackson.databind.JsonNode node) {
+        if (node == null) {
+            return null;
+        }
+
+        String name = gcsText(node, "name");
+        if (name == null || name.isEmpty()) {
             return null;
         }
 
@@ -578,47 +604,47 @@ public class GoogleVertexAICrudService {
         b.setObjectClass(objectClass);
 
         // __UID__ = full resource name (projects/{project}/serviceAccounts/{email})
-        b.setUid(new Uid(sa.getName()));
+        b.setUid(new Uid(name));
 
         // __NAME__ = email address
-        String nameValue = sa.getEmail() != null ? sa.getEmail() : sa.getName();
-        b.setName(new Name(nameValue));
+        String email = gcsText(node, "email");
+        b.setName(new Name(email != null ? email : name));
 
         b.addAttribute(AttributeBuilder.build(
                 GoogleVertexAIConstants.ATTR_PLATFORM,
                 GoogleVertexAIConstants.PLATFORM_VALUE));
 
-        addIfPresent(b, GoogleVertexAIConstants.ATTR_SA_EMAIL, sa.getEmail());
-        addIfPresent(b, GoogleVertexAIConstants.ATTR_DESCRIPTION, sa.getDescription());
-        addIfPresent(b, "displayName", sa.getDisplayName());
-        addIfPresent(b, GoogleVertexAIConstants.ATTR_SA_PROJECT_ID, sa.getProjectId());
-        addIfPresent(b, GoogleVertexAIConstants.ATTR_SA_UNIQUE_ID, sa.getUniqueId());
-        addIfPresent(b, GoogleVertexAIConstants.ATTR_CREATED_AT, sa.getCreateTime());
-        addIfPresent(b, GoogleVertexAIConstants.ATTR_SA_OAUTH2_CLIENT_ID, sa.getOauth2ClientId());
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_SA_EMAIL, email);
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_DESCRIPTION, gcsText(node, "description"));
+        addIfPresent(b, "displayName", gcsText(node, "displayName"));
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_SA_PROJECT_ID, gcsText(node, "projectId"));
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_SA_UNIQUE_ID, gcsText(node, "uniqueId"));
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_CREATED_AT, gcsText(node, "createTime"));
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_SA_OAUTH2_CLIENT_ID, gcsText(node, "oauth2ClientId"));
 
+        com.fasterxml.jackson.databind.JsonNode disabledNode = node.get("disabled");
         b.addAttribute(AttributeBuilder.build(
                 GoogleVertexAIConstants.ATTR_SA_DISABLED,
-                sa.isDisabled()));
+                disabledNode != null && disabledNode.asBoolean()));
 
-        // Expensive attributes: keys (fetched per-SA if requested)
-        if (includeKeys) {
-            String keysJson = client.listServiceAccountKeysJson(sa.getName());
-            b.addAttribute(AttributeBuilder.build(
-                    GoogleVertexAIConstants.ATTR_SA_KEYS, keysJson));
+        // keysJson: already serialized by the Python job
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_SA_KEYS, gcsText(node, "keysJson"));
 
-            // Count keys from JSON
-            int keyCount = countKeysFromJson(keysJson);
+        com.fasterxml.jackson.databind.JsonNode keyCountNode = node.get("keyCount");
+        if (keyCountNode != null && !keyCountNode.isNull()) {
             b.addAttribute(AttributeBuilder.build(
-                    GoogleVertexAIConstants.ATTR_SA_KEY_COUNT, keyCount));
+                    GoogleVertexAIConstants.ATTR_SA_KEY_COUNT, keyCountNode.asInt()));
         }
 
-        // Expensive attributes: linked agents (requires full agent scan if requested)
-        if (includeLinkedAgents && sa.getEmail() != null) {
-            List<String> linkedAgents = client.getLinkedAgentsForServiceAccount(sa.getEmail());
-            if (!linkedAgents.isEmpty()) {
-                b.addAttribute(AttributeBuilder.build(
-                        GoogleVertexAIConstants.ATTR_SA_LINKED_AGENTS, linkedAgents));
+        // linkedAgentIds: multi-valued, populated by the Python job
+        com.fasterxml.jackson.databind.JsonNode linkedAgents = node.get("linkedAgentIds");
+        if (linkedAgents != null && linkedAgents.isArray() && linkedAgents.size() > 0) {
+            List<String> ids = new ArrayList<>();
+            for (com.fasterxml.jackson.databind.JsonNode id : linkedAgents) {
+                ids.add(id.asText());
             }
+            b.addAttribute(AttributeBuilder.build(
+                    GoogleVertexAIConstants.ATTR_SA_LINKED_AGENTS, ids));
         }
 
         return b.build();
@@ -653,44 +679,11 @@ public class GoogleVertexAICrudService {
     }
 
     /**
-     * Check if an attribute is requested in OperationOptions.
-     * Returns true if:
-     * - options is null (all attributes)
-     * - getAttributesToGet() is null (all attributes)
-     * - attrName is in the getAttributesToGet() array
-     *
-     * OPENICF-4001: Q18 decision
+     * Extract a text value from a GCS artifact JSON node.
+     * Returns null if the field is absent or null.
      */
-    private boolean isAttributeRequested(OperationOptions options, String attrName) {
-        if (options == null) {
-            return true;
-        }
-        String[] attrsToGet = options.getAttributesToGet();
-        if (attrsToGet == null) {
-            return true;
-        }
-        for (String attr : attrsToGet) {
-            if (attrName.equals(attr)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * Count keys from JSON array string.
-     * OPENICF-4001
-     */
-    private int countKeysFromJson(String keysJson) {
-        if (keysJson == null || keysJson.isEmpty() || "[]".equals(keysJson)) {
-            return 0;
-        }
-        try {
-            List<?> keys = OBJECT_MAPPER.readValue(keysJson, List.class);
-            return keys.size();
-        } catch (JsonProcessingException e) {
-            LOG.warn("Failed to parse keys JSON for counting: {0}", e.getMessage());
-            return 0;
-        }
+    private static String gcsText(com.fasterxml.jackson.databind.JsonNode node, String field) {
+        com.fasterxml.jackson.databind.JsonNode v = node.get(field);
+        return (v == null || v.isNull()) ? null : v.asText();
     }
 }
