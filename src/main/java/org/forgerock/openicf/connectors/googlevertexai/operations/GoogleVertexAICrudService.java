@@ -519,14 +519,18 @@ public class GoogleVertexAICrudService {
                 GoogleVertexAIConstants.ATTR_PLATFORM,
                 GoogleVertexAIConstants.PLATFORM_VALUE));
 
+        // OPENICF-4008: aligned to Python job NormalizedIdentityBinding output schema
         addIfPresent(b, GoogleVertexAIConstants.ATTR_AGENT_ID, agentId);
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_AGENT_VERSION, gcsText(node, "agentVersion"));
         addIfPresent(b, GoogleVertexAIConstants.ATTR_PRINCIPAL, principal);
         addIfPresent(b, GoogleVertexAIConstants.ATTR_KIND, gcsText(node, "principalType"));
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_IAM_MEMBER, gcsText(node, "iamMember"));
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_IAM_ROLE, gcsText(node, "iamRole"));
         addIfPresent(b, GoogleVertexAIConstants.ATTR_SCOPE, gcsText(node, "scopeType"));
-        addIfPresent(b, "scopeResourceName", gcsText(node, "scopeResourceName"));
-        addIfPresent(b, "sourceTag", gcsText(node, "sourceTag"));
-        addIfPresent(b, "confidence", gcsText(node, "confidence"));
-        addIfPresent(b, "flavor", gcsText(node, "flavor"));
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_SCOPE_RESOURCE_NAME, gcsText(node, "scopeResourceName"));
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_SOURCE_TAG, gcsText(node, "sourceTag"));
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_CONFIDENCE, gcsText(node, "confidence"));
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_FLAVOR, gcsText(node, "flavor"));
 
         // permissions: multi-valued string array from job output
         com.fasterxml.jackson.databind.JsonNode perms = node.get("permissions");
@@ -539,6 +543,13 @@ public class GoogleVertexAICrudService {
                 b.addAttribute(AttributeBuilder.build(
                         GoogleVertexAIConstants.ATTR_PERMISSIONS, permList));
             }
+        }
+
+        // expanded: boolean — true if principal is not an unexpanded group
+        com.fasterxml.jackson.databind.JsonNode expandedNode = node.get("expanded");
+        if (expandedNode != null && !expandedNode.isNull()) {
+            b.addAttribute(AttributeBuilder.build(
+                    GoogleVertexAIConstants.ATTR_EXPANDED, expandedNode.asBoolean()));
         }
 
         return b.build();

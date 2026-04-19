@@ -34,8 +34,10 @@ public class GoogleVertexAIConfiguration extends AbstractConfiguration {
     private String organizationId;           // For org-wide scanning
     private boolean useCloudAssetApi = false; // Enable org-wide mode via Cloud Asset API
 
-    // OPENICF-4007: GCS inventory base URL for offline artifact reads
-    private String gcsInventoryBaseUrl;
+    // OPENICF-4016: Per-artifact pre-signed GCS URLs for offline artifact reads
+    private String gcsIdentityBindingsUrl;
+    private String gcsServiceAccountsUrl;
+    private String gcsToolCredentialsUrl;
 
     // ---------------------------------------------------------------------
     // Getters / setters
@@ -156,24 +158,52 @@ public class GoogleVertexAIConfiguration extends AbstractConfiguration {
         this.organizationId = organizationId;
     }
 
-    // OPENICF-4007: GCS inventory base URL
+    // OPENICF-4016: Per-artifact pre-signed GCS URLs
     @ConfigurationProperty(
             order = 9,
-            displayMessageKey = "gcsInventoryBaseUrl.display",
-            helpMessageKey = "gcsInventoryBaseUrl.help",
+            displayMessageKey = "gcsIdentityBindingsUrl.display",
+            helpMessageKey = "gcsIdentityBindingsUrl.help",
             required = false
     )
-    public String getGcsInventoryBaseUrl() {
-        return gcsInventoryBaseUrl;
+    public String getGcsIdentityBindingsUrl() {
+        return gcsIdentityBindingsUrl;
     }
 
-    public void setGcsInventoryBaseUrl(String gcsInventoryBaseUrl) {
-        this.gcsInventoryBaseUrl = gcsInventoryBaseUrl;
+    public void setGcsIdentityBindingsUrl(String gcsIdentityBindingsUrl) {
+        this.gcsIdentityBindingsUrl = gcsIdentityBindingsUrl;
+    }
+
+    @ConfigurationProperty(
+            order = 10,
+            displayMessageKey = "gcsServiceAccountsUrl.display",
+            helpMessageKey = "gcsServiceAccountsUrl.help",
+            required = false
+    )
+    public String getGcsServiceAccountsUrl() {
+        return gcsServiceAccountsUrl;
+    }
+
+    public void setGcsServiceAccountsUrl(String gcsServiceAccountsUrl) {
+        this.gcsServiceAccountsUrl = gcsServiceAccountsUrl;
+    }
+
+    @ConfigurationProperty(
+            order = 11,
+            displayMessageKey = "gcsToolCredentialsUrl.display",
+            helpMessageKey = "gcsToolCredentialsUrl.help",
+            required = false
+    )
+    public String getGcsToolCredentialsUrl() {
+        return gcsToolCredentialsUrl;
+    }
+
+    public void setGcsToolCredentialsUrl(String gcsToolCredentialsUrl) {
+        this.gcsToolCredentialsUrl = gcsToolCredentialsUrl;
     }
 
     // OPENICF-4003: Org-wide agent scanning via Cloud Asset API
     @ConfigurationProperty(
-            order = 10,
+            order = 12,
             displayMessageKey = "useCloudAssetApi.display",
             helpMessageKey = "useCloudAssetApi.help",
             required = false
@@ -223,17 +253,30 @@ public class GoogleVertexAIConfiguration extends AbstractConfiguration {
                     "organizationId must be specified when useCloudAssetApi is enabled.");
         }
 
-        // OPENICF-4007: Validate GCS inventory configuration
-        if (identityBindingScanEnabled && StringUtil.isBlank(gcsInventoryBaseUrl)) {
-            throw new IllegalArgumentException(
-                    "gcsInventoryBaseUrl must be specified when identityBindingScanEnabled is true.");
+        // OPENICF-4016: Validate per-artifact GCS URLs
+        if (identityBindingScanEnabled) {
+            if (StringUtil.isBlank(gcsIdentityBindingsUrl)) {
+                throw new IllegalArgumentException(
+                        "gcsIdentityBindingsUrl must be specified when identityBindingScanEnabled is true.");
+            }
+            if (StringUtil.isBlank(gcsServiceAccountsUrl)) {
+                throw new IllegalArgumentException(
+                        "gcsServiceAccountsUrl must be specified when identityBindingScanEnabled is true.");
+            }
+            if (StringUtil.isBlank(gcsToolCredentialsUrl)) {
+                throw new IllegalArgumentException(
+                        "gcsToolCredentialsUrl must be specified when identityBindingScanEnabled is true.");
+            }
         }
 
         LOG.ok("GoogleVertexAIConfiguration validated. projectId={0}, location={1}, " +
                         "agentApiFlavor={2}, useWorkloadIdentity={3}, identityBindingScanEnabled={4}, " +
-                        "organizationId={5}, useCloudAssetApi={6}, gcsInventoryBaseUrl={7}",
+                        "organizationId={5}, useCloudAssetApi={6}, gcsIdentityBindingsUrl={7}, " +
+                        "gcsServiceAccountsUrl={8}, gcsToolCredentialsUrl={9}",
                 projectId, location, agentApiFlavor, useWorkloadIdentity, identityBindingScanEnabled,
                 organizationId, useCloudAssetApi,
-                gcsInventoryBaseUrl != null ? "[set]" : "[not set]");
+                gcsIdentityBindingsUrl != null ? "[set]" : "[not set]",
+                gcsServiceAccountsUrl != null ? "[set]" : "[not set]",
+                gcsToolCredentialsUrl != null ? "[set]" : "[not set]");
     }
 }

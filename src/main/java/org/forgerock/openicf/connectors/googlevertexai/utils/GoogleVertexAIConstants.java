@@ -105,6 +105,13 @@ public abstract class GoogleVertexAIConstants {
     public static final String ATTR_IAM_ROLE = "iamRole";
     public static final String ATTR_IAM_MEMBER = "iamMember";
 
+    // OPENICF-4008: additional fields aligned with Python job output schema
+    public static final String ATTR_SCOPE_RESOURCE_NAME = "scopeResourceName";
+    public static final String ATTR_SOURCE_TAG = "sourceTag";
+    public static final String ATTR_CONFIDENCE = "confidence";
+    public static final String ATTR_FLAVOR = "flavor";
+    public static final String ATTR_EXPANDED = "expanded";
+
     // ---------------------------------------------------------------------
     // Service account object class and attributes (OPENICF-4001)
     // ---------------------------------------------------------------------

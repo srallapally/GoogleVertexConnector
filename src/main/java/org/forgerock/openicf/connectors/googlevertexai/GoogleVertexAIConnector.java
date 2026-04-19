@@ -241,6 +241,19 @@ public class GoogleVertexAIConnector implements
                 GoogleVertexAIConstants.ATTR_IAM_ROLE, String.class));
         ibOc.addAttributeInfo(AttributeInfoBuilder.build(
                 GoogleVertexAIConstants.ATTR_IAM_MEMBER, String.class));
+        // OPENICF-4008: additional fields aligned with Python job output schema
+        ibOc.addAttributeInfo(AttributeInfoBuilder.build(
+                GoogleVertexAIConstants.ATTR_AGENT_VERSION, String.class));
+        ibOc.addAttributeInfo(AttributeInfoBuilder.build(
+                GoogleVertexAIConstants.ATTR_SCOPE_RESOURCE_NAME, String.class));
+        ibOc.addAttributeInfo(AttributeInfoBuilder.build(
+                GoogleVertexAIConstants.ATTR_SOURCE_TAG, String.class));
+        ibOc.addAttributeInfo(AttributeInfoBuilder.build(
+                GoogleVertexAIConstants.ATTR_CONFIDENCE, String.class));
+        ibOc.addAttributeInfo(AttributeInfoBuilder.build(
+                GoogleVertexAIConstants.ATTR_FLAVOR, String.class));
+        ibOc.addAttributeInfo(AttributeInfoBuilder.build(
+                GoogleVertexAIConstants.ATTR_EXPANDED, Boolean.class));
 
         builder.defineObjectClass(ibOc.build());
 

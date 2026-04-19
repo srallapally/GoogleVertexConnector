@@ -845,37 +845,37 @@ public class GoogleVertexAIClient implements AutoCloseable, Closeable {
     /**
      * Fetch identity-bindings.json from GCS.
      *
-     * @param gcsInventoryBaseUrl pre-signed GCS base URL (no trailing slash)
+     * @param gcsIdentityBindingsUrl full pre-signed GCS URL for identity-bindings.json
      * @return parsed JSON root node of the artifact
      * @throws org.identityconnectors.framework.common.exceptions.ConnectorException on HTTP non-2xx or I/O failure
      */
-    public JsonNode fetchGcsIdentityBindings(String gcsInventoryBaseUrl) {
-        // OPENICF-4007: identity bindings are produced by the offline Python job
-        return fetchGcsArtifact(gcsInventoryBaseUrl, "identity-bindings.json");
+    public JsonNode fetchGcsIdentityBindings(String gcsIdentityBindingsUrl) {
+        // OPENICF-4016: full pre-signed URL passed directly — no path appending
+        return fetchGcsArtifact(gcsIdentityBindingsUrl, "identity-bindings.json");
     }
 
     /**
      * Fetch service-accounts.json from GCS.
      *
-     * @param gcsInventoryBaseUrl pre-signed GCS base URL (no trailing slash)
+     * @param gcsServiceAccountsUrl full pre-signed GCS URL for service-accounts.json
      * @return parsed JSON root node of the artifact
      * @throws org.identityconnectors.framework.common.exceptions.ConnectorException on HTTP non-2xx or I/O failure
      */
-    public JsonNode fetchGcsServiceAccounts(String gcsInventoryBaseUrl) {
-        // OPENICF-4007: service accounts are produced by the offline Python job
-        return fetchGcsArtifact(gcsInventoryBaseUrl, "service-accounts.json");
+    public JsonNode fetchGcsServiceAccounts(String gcsServiceAccountsUrl) {
+        // OPENICF-4016: full pre-signed URL passed directly — no path appending
+        return fetchGcsArtifact(gcsServiceAccountsUrl, "service-accounts.json");
     }
 
     /**
      * Fetch tool-credentials.json from GCS.
      *
-     * @param gcsInventoryBaseUrl pre-signed GCS base URL (no trailing slash)
+     * @param gcsToolCredentialsUrl full pre-signed GCS URL for tool-credentials.json
      * @return parsed JSON root node of the artifact
      * @throws org.identityconnectors.framework.common.exceptions.ConnectorException on HTTP non-2xx or I/O failure
      */
-    public JsonNode fetchGcsToolCredentials(String gcsInventoryBaseUrl) {
-        // OPENICF-4007: tool credentials are produced by the offline Python job
-        return fetchGcsArtifact(gcsInventoryBaseUrl, "tool-credentials.json");
+    public JsonNode fetchGcsToolCredentials(String gcsToolCredentialsUrl) {
+        // OPENICF-4016: full pre-signed URL passed directly — no path appending
+        return fetchGcsArtifact(gcsToolCredentialsUrl, "tool-credentials.json");
     }
 
     /**
@@ -886,13 +886,12 @@ public class GoogleVertexAIClient implements AutoCloseable, Closeable {
      * a SAS/pre-signed URL causes GCS to return 400 InvalidAuthenticationInfo,
      * matching the same pattern used in the Copilot connector.
      *
-     * @param baseUrl      pre-signed GCS base URL, no trailing slash
-     * @param artifactName file name, e.g. "identity-bindings.json"
+     * @param url          full pre-signed GCS URL for the artifact
+     * @param artifactName file name for logging (e.g. "identity-bindings.json")
      * @return parsed JSON root node
      * @throws org.identityconnectors.framework.common.exceptions.ConnectorException on any failure
      */
-    private JsonNode fetchGcsArtifact(String baseUrl, String artifactName) {
-        String url = baseUrl + "/" + artifactName;
+    private JsonNode fetchGcsArtifact(String url, String artifactName) {
         LOG.ok("Fetching GCS artifact: {0}", url);
 
         try {
