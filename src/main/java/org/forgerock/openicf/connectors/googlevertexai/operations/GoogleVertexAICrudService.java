@@ -174,7 +174,8 @@ public class GoogleVertexAICrudService {
         com.fasterxml.jackson.databind.JsonNode root =
                 client.fetchGcsIdentityBindings(connection.getConfiguration().getGcsIdentityBindingsUrl());
 
-        com.fasterxml.jackson.databind.JsonNode bindingsNode = root.get("identityBindings");
+        // BUG-6: artifact is a bare JSON array, not a wrapped object
+        com.fasterxml.jackson.databind.JsonNode bindingsNode = root;
         if (bindingsNode == null || !bindingsNode.isArray() || bindingsNode.size() == 0) {
             LOG.ok("No identity bindings in GCS artifact");
             return;
@@ -217,7 +218,8 @@ public class GoogleVertexAICrudService {
         com.fasterxml.jackson.databind.JsonNode root =
                 client.fetchGcsServiceAccounts(connection.getConfiguration().getGcsServiceAccountsUrl());
 
-        com.fasterxml.jackson.databind.JsonNode saNode = root.get("serviceAccounts");
+        // BUG-6: artifact is a bare JSON array, not a wrapped object
+        com.fasterxml.jackson.databind.JsonNode saNode = root;
         if (saNode == null || !saNode.isArray() || saNode.size() == 0) {
             LOG.ok("No service accounts in GCS artifact");
             return;
@@ -328,7 +330,8 @@ public class GoogleVertexAICrudService {
         com.fasterxml.jackson.databind.JsonNode root =
                 client.fetchGcsServiceAccounts(connection.getConfiguration().getGcsServiceAccountsUrl());
 
-        com.fasterxml.jackson.databind.JsonNode saNode = root.get("serviceAccounts");
+        // BUG-6: artifact is a bare JSON array, not a wrapped object
+        com.fasterxml.jackson.databind.JsonNode saNode = root;
         if (saNode == null || !saNode.isArray()) {
             return null;
         }
