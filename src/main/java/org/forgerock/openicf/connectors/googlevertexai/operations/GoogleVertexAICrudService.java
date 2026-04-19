@@ -172,7 +172,7 @@ public class GoogleVertexAICrudService {
 
         // Throws ConnectorException on HTTP non-2xx or I/O failure (Q29)
         com.fasterxml.jackson.databind.JsonNode root =
-                client.fetchGcsIdentityBindings(connection.getConfiguration().getGcsInventoryBaseUrl());
+                client.fetchGcsIdentityBindings(connection.getConfiguration().getGcsIdentityBindingsUrl());
 
         com.fasterxml.jackson.databind.JsonNode bindingsNode = root.get("identityBindings");
         if (bindingsNode == null || !bindingsNode.isArray() || bindingsNode.size() == 0) {
@@ -215,7 +215,7 @@ public class GoogleVertexAICrudService {
 
         // Throws ConnectorException on HTTP non-2xx or I/O failure (Q29)
         com.fasterxml.jackson.databind.JsonNode root =
-                client.fetchGcsServiceAccounts(connection.getConfiguration().getGcsInventoryBaseUrl());
+                client.fetchGcsServiceAccounts(connection.getConfiguration().getGcsServiceAccountsUrl());
 
         com.fasterxml.jackson.databind.JsonNode saNode = root.get("serviceAccounts");
         if (saNode == null || !saNode.isArray() || saNode.size() == 0) {
@@ -326,7 +326,7 @@ public class GoogleVertexAICrudService {
 
         // Throws ConnectorException on HTTP non-2xx or I/O failure (Q29)
         com.fasterxml.jackson.databind.JsonNode root =
-                client.fetchGcsServiceAccounts(connection.getConfiguration().getGcsInventoryBaseUrl());
+                client.fetchGcsServiceAccounts(connection.getConfiguration().getGcsServiceAccountsUrl());
 
         com.fasterxml.jackson.databind.JsonNode saNode = root.get("serviceAccounts");
         if (saNode == null || !saNode.isArray()) {
