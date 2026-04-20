@@ -126,6 +126,9 @@ public class GoogleVertexAIConnector implements
                 GoogleVertexAIConstants.ATTR_TIME_ZONE, String.class));
         agentOc.addAttributeInfo(AttributeInfoBuilder.build(
                 GoogleVertexAIConstants.ATTR_START_FLOW, String.class));
+        // RFE-2: Playbook-based CX agents use startPlaybook instead of startFlow
+        agentOc.addAttributeInfo(AttributeInfoBuilder.build(
+                GoogleVertexAIConstants.ATTR_START_PLAYBOOK, String.class));
         agentOc.addAttributeInfo(AttributeInfoBuilder.build(
                 GoogleVertexAIConstants.ATTR_CREATED_AT, String.class));
         agentOc.addAttributeInfo(AttributeInfoBuilder.build(
@@ -291,6 +294,31 @@ public class GoogleVertexAIConnector implements
 
         builder.defineObjectClass(saOc.build());
 
+        // -----------------------------------------------------------------
+        // Tool Credential (OPENICF-4017)
+        // -----------------------------------------------------------------
+        ObjectClassInfoBuilder tcOc = new ObjectClassInfoBuilder();
+        tcOc.setType(GoogleVertexAIConstants.OC_TOOL_CREDENTIAL);
+
+        tcOc.addAttributeInfo(AttributeInfoBuilder.build(
+                GoogleVertexAIConstants.ATTR_TC_TOOL_ID, String.class));
+        tcOc.addAttributeInfo(AttributeInfoBuilder.build(
+                GoogleVertexAIConstants.ATTR_TC_TOOL_KEY, String.class));
+        tcOc.addAttributeInfo(AttributeInfoBuilder.build(
+                GoogleVertexAIConstants.ATTR_TC_TOOL_TYPE, String.class));
+        tcOc.addAttributeInfo(AttributeInfoBuilder.build(
+                GoogleVertexAIConstants.ATTR_TC_AGENT_ID, String.class));
+        tcOc.addAttributeInfo(AttributeInfoBuilder.build(
+                GoogleVertexAIConstants.ATTR_TC_AUTH_TYPE, String.class));
+        tcOc.addAttributeInfo(AttributeInfoBuilder.build(
+                GoogleVertexAIConstants.ATTR_TC_CREDENTIAL_REF, String.class));
+        tcOc.addAttributeInfo(AttributeInfoBuilder.build(
+                GoogleVertexAIConstants.ATTR_TC_PROJECT_ID, String.class));
+        tcOc.addAttributeInfo(AttributeInfoBuilder.build(
+                GoogleVertexAIConstants.ATTR_TC_LOCATION, String.class));
+
+        builder.defineObjectClass(tcOc.build());
+
         Schema schema = builder.build();
         LOG.ok("Schema built for GoogleVertexAIConnector.");
         return schema;
@@ -359,6 +387,9 @@ public class GoogleVertexAIConnector implements
         } else if (GoogleVertexAIConstants.OC_SERVICE_ACCOUNT.equals(ocName)) {
             // OPENICF-4001: Service account search
             crudService.searchServiceAccounts(objectClass, filter, pagingHandler, options);
+        } else if (GoogleVertexAIConstants.OC_TOOL_CREDENTIAL.equals(ocName)) {
+            // OPENICF-4017: Tool credential search
+            crudService.searchToolCredentials(objectClass, filter, pagingHandler, options);
         } else {
             LOG.warn("Unsupported objectClass: {0}", ocName);
         }
@@ -388,6 +419,9 @@ public class GoogleVertexAIConnector implements
         } else if (GoogleVertexAIConstants.OC_SERVICE_ACCOUNT.equals(ocName)) {
             // OPENICF-4001: Service account GET
             co = crudService.getServiceAccount(objectClass, uid, options);
+        } else if (GoogleVertexAIConstants.OC_TOOL_CREDENTIAL.equals(ocName)) {
+            // OPENICF-4017: Tool credential GET
+            co = crudService.getToolCredential(objectClass, uid, options);
         } else {
             throw new UnsupportedOperationException(
                     "Unsupported ObjectClass for GET: " + objectClass);

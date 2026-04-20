@@ -53,6 +53,8 @@ public abstract class GoogleVertexAIConstants {
     public static final String ATTR_TIME_ZONE = "timeZone";
     public static final String ATTR_SAFETY_SETTINGS = "safetySettings";
     public static final String ATTR_START_FLOW = "startFlow";
+    // RFE-2: Playbook-based CX agents use startPlaybook instead of startFlow
+    public static final String ATTR_START_PLAYBOOK = "startPlaybook";
 
     // Vertex AI Agent Engine (reasoningEngine) specific
     public static final String ATTR_AGENT_FRAMEWORK = "agentFramework";
@@ -127,6 +129,21 @@ public abstract class GoogleVertexAIConstants {
     public static final String ATTR_SA_LINKED_AGENTS = "linkedAgentIds";
     public static final String ATTR_SA_KEYS = "keys";
     public static final String ATTR_SA_KEY_COUNT = "keyCount";
+
+    // ---------------------------------------------------------------------
+    // Tool credential object class and attributes (OPENICF-4017)
+    // Field names match tool-credentials.json produced by the offline Python job.
+    // ---------------------------------------------------------------------
+    public static final String OC_TOOL_CREDENTIAL = "agentToolCredential";
+
+    public static final String ATTR_TC_TOOL_ID = "toolId";
+    public static final String ATTR_TC_TOOL_KEY = "toolKey";
+    public static final String ATTR_TC_TOOL_TYPE = "toolType";
+    public static final String ATTR_TC_AGENT_ID = "agentId";
+    public static final String ATTR_TC_AUTH_TYPE = "authType";
+    public static final String ATTR_TC_CREDENTIAL_REF = "credentialRef";
+    public static final String ATTR_TC_PROJECT_ID = "tcProjectId";
+    public static final String ATTR_TC_LOCATION = "tcLocation";
 
     private GoogleVertexAIConstants() {
         // prevent instantiation

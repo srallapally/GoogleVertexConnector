@@ -24,6 +24,7 @@ public class GoogleVertexAgentDescriptor {
     private final String defaultLanguageCode;
     private final String timeZone;
     private final String startFlow;
+    private final String startPlaybook;
     private final String createTime;   // RFC-3339 string from API
     private final String updateTime;
     private final String generativeModel;   // extracted from generativeSettings
@@ -36,25 +37,27 @@ public class GoogleVertexAgentDescriptor {
     private final String serviceAccount;
 
     public GoogleVertexAgentDescriptor(String name,
-                                 String displayName,
-                                 String description,
-                                 String defaultLanguageCode,
-                                 String timeZone,
-                                 String startFlow,
-                                 String createTime,
-                                 String updateTime,
-                                 String generativeModel,
-                                 String safetySettingsJson,
-                                 List<String> toolIds,
-                                 List<String> dataStoreIds,
-                                 String agentFramework,
-                                 String serviceAccount) {
+                                       String displayName,
+                                       String description,
+                                       String defaultLanguageCode,
+                                       String timeZone,
+                                       String startFlow,
+                                       String startPlaybook,
+                                       String createTime,
+                                       String updateTime,
+                                       String generativeModel,
+                                       String safetySettingsJson,
+                                       List<String> toolIds,
+                                       List<String> dataStoreIds,
+                                       String agentFramework,
+                                       String serviceAccount) {
         this.name = name;
         this.displayName = displayName;
         this.description = description;
         this.defaultLanguageCode = defaultLanguageCode;
         this.timeZone = timeZone;
         this.startFlow = startFlow;
+        this.startPlaybook = startPlaybook;
         this.createTime = createTime;
         this.updateTime = updateTime;
         this.generativeModel = generativeModel;
@@ -92,6 +95,10 @@ public class GoogleVertexAgentDescriptor {
 
     public String getStartFlow() {
         return startFlow;
+    }
+
+    public String getStartPlaybook() {
+        return startPlaybook;
     }
 
     public String getCreateTime() {

@@ -346,6 +346,77 @@ public class GoogleVertexAICrudService {
         return null;
     }
 
+    // OPENICF-4017: Tool credentials are read from the GCS artifact produced
+    // by the offline Python job. Gated by identityBindingScanEnabled.
+    public void searchToolCredentials(ObjectClass objectClass,
+                                      Filter query,
+                                      ResultsHandler handler,
+                                      OperationOptions options) {
+        LOG.ok("searchToolCredentials called for OC {0}", objectClass);
+
+        if (!connection.getConfiguration().isIdentityBindingScanEnabled()) {
+            LOG.ok("identityBindingScanEnabled=false; skipping agentToolCredential search");
+            return;
+        }
+
+        com.fasterxml.jackson.databind.JsonNode root =
+                client.fetchGcsToolCredentials(connection.getConfiguration().getGcsToolCredentialsUrl());
+
+        if (root == null || !root.isArray() || root.size() == 0) {
+            LOG.ok("No tool credentials in GCS artifact");
+            return;
+        }
+
+        String matchUid = extractFilterValue(query, Uid.NAME);
+        String matchName = extractFilterValue(query, NAME);
+
+        for (com.fasterxml.jackson.databind.JsonNode node : root) {
+            ConnectorObject co = toToolCredentialConnectorObject(objectClass, node);
+            if (co == null) {
+                continue;
+            }
+            if (matchUid != null && !matchUid.equals(co.getUid().getUidValue())) {
+                continue;
+            }
+            if (matchName != null && !matchName.equals(co.getName().getNameValue())) {
+                continue;
+            }
+            if (!handler.handle(co)) {
+                break;
+            }
+        }
+    }
+
+    // OPENICF-4017: Get single tool credential from GCS artifact by UID.
+    public ConnectorObject getToolCredential(ObjectClass objectClass,
+                                             Uid uid,
+                                             OperationOptions options) {
+        if (uid == null || uid.getUidValue() == null) {
+            return null;
+        }
+
+        if (!connection.getConfiguration().isIdentityBindingScanEnabled()) {
+            LOG.ok("identityBindingScanEnabled=false; skipping agentToolCredential GET");
+            return null;
+        }
+
+        com.fasterxml.jackson.databind.JsonNode root =
+                client.fetchGcsToolCredentials(connection.getConfiguration().getGcsToolCredentialsUrl());
+
+        if (root == null || !root.isArray()) {
+            return null;
+        }
+
+        String targetUid = uid.getUidValue();
+        for (com.fasterxml.jackson.databind.JsonNode node : root) {
+            com.fasterxml.jackson.databind.JsonNode idNode = node.get("id");
+            if (idNode != null && targetUid.equals(idNode.asText())) {
+                return toToolCredentialConnectorObject(objectClass, node);
+            }
+        }
+        return null;
+    }
+
     // =================================================================
     // ConnectorObject mapping
     // =================================================================
@@ -379,6 +450,7 @@ public class GoogleVertexAICrudService {
         addIfPresent(b, GoogleVertexAIConstants.ATTR_DEFAULT_LANGUAGE_CODE, agent.getDefaultLanguageCode());
         addIfPresent(b, GoogleVertexAIConstants.ATTR_TIME_ZONE, agent.getTimeZone());
         addIfPresent(b, GoogleVertexAIConstants.ATTR_START_FLOW, agent.getStartFlow());
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_START_PLAYBOOK, agent.getStartPlaybook()); // RFE-2
         addIfPresent(b, GoogleVertexAIConstants.ATTR_CREATED_AT, agent.getCreateTime());
         addIfPresent(b, GoogleVertexAIConstants.ATTR_UPDATED_AT, agent.getUpdateTime());
         addIfPresent(b, GoogleVertexAIConstants.ATTR_SAFETY_SETTINGS, agent.getSafetySettingsJson());
@@ -660,6 +732,44 @@ public class GoogleVertexAICrudService {
             b.addAttribute(AttributeBuilder.build(
                     GoogleVertexAIConstants.ATTR_SA_LINKED_AGENTS, ids));
         }
+
+        return b.build();
+    }
+
+    // OPENICF-4017: Maps a raw JSON node from tool-credentials.json (GCS artifact)
+    // to a ConnectorObject. Field names match the Python job's output schema.
+    private ConnectorObject toToolCredentialConnectorObject(ObjectClass objectClass,
+                                                            com.fasterxml.jackson.databind.JsonNode node) {
+        if (node == null) {
+            return null;
+        }
+
+        String id = gcsText(node, "id");
+        if (id == null || id.isEmpty()) {
+            return null;
+        }
+
+        String toolId = gcsText(node, "toolId");
+        if (toolId == null || toolId.isEmpty()) {
+            return null;
+        }
+
+        ConnectorObjectBuilder b = new ConnectorObjectBuilder();
+        b.setObjectClass(objectClass);
+
+        // __UID__ = tc-{sha1[:16]} from job
+        b.setUid(new Uid(id));
+        // __NAME__ = full webhook resource name
+        b.setName(new Name(toolId));
+
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_TC_TOOL_ID, toolId);
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_TC_TOOL_KEY, gcsText(node, "toolKey"));
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_TC_TOOL_TYPE, gcsText(node, "toolType"));
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_TC_AGENT_ID, gcsText(node, "agentId"));
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_TC_AUTH_TYPE, gcsText(node, "authType"));
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_TC_CREDENTIAL_REF, gcsText(node, "credentialRef"));
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_TC_PROJECT_ID, gcsText(node, "projectId"));
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_TC_LOCATION, gcsText(node, "location"));
 
         return b.build();
     }

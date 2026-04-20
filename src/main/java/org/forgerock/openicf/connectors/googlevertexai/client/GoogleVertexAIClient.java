@@ -527,7 +527,7 @@ public class GoogleVertexAIClient implements AutoCloseable, Closeable {
                     resourceName,
                     optText(node, "displayName"),
                     optText(node, "description"),
-                    null, null, null, null, null, null, null, null, null,
+                    null, null, null, null, null, null, null, null, null, null,
                     isReasoningEngine ? "unknown" : null,
                     null
             );
@@ -1115,6 +1115,7 @@ public class GoogleVertexAIClient implements AutoCloseable, Closeable {
                 optText(node, "defaultLanguageCode"),
                 optText(node, "timeZone"),
                 optText(node, "startFlow"),
+                optText(node, "startPlaybook"), // RFE-2
                 optText(node, "createTime"),
                 optText(node, "updateTime"),
                 generativeModel,
@@ -1165,6 +1166,7 @@ public class GoogleVertexAIClient implements AutoCloseable, Closeable {
                 null, // no defaultLanguageCode
                 null, // no timeZone
                 null, // no startFlow
+                null, // no startPlaybook
                 optText(node, "createTime"),
                 optText(node, "updateTime"),
                 null, // no generativeModel (model is embedded in agent code)
