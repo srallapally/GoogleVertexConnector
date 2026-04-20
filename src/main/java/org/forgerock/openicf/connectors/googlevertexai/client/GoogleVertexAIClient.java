@@ -19,6 +19,7 @@ import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
+import static org.forgerock.openicf.connectors.googlevertexai.utils.GoogleVertexAIConstants.FLAVOR_BOTH;
 import static org.forgerock.openicf.connectors.googlevertexai.utils.GoogleVertexAIConstants.FLAVOR_DIALOGFLOW_CX;
 import static org.forgerock.openicf.connectors.googlevertexai.utils.GoogleVertexAIConstants.FLAVOR_VERTEX_AI;
 
@@ -327,6 +328,14 @@ public class GoogleVertexAIClient implements AutoCloseable, Closeable {
             return listAgentsViaCloudAsset();
         }
 
+        // RFE-1: dual-flavor — discover CX agents + RE agents via direct API calls
+        if (FLAVOR_BOTH.equals(agentApiFlavor)) {
+            List<GoogleVertexAgentDescriptor> all = new ArrayList<>();
+            all.addAll(listFlavorDirect(FLAVOR_DIALOGFLOW_CX));
+            all.addAll(listFlavorDirect(FLAVOR_VERTEX_AI));
+            return all;
+        }
+
         // Default: project-scoped discovery via Dialogflow CX or Vertex AI API
         List<GoogleVertexAgentDescriptor> all = new ArrayList<>();
         String pageToken = null;
@@ -337,6 +346,61 @@ public class GoogleVertexAIClient implements AutoCloseable, Closeable {
             pageToken = page.getNextPageToken();
         } while (pageToken != null);
 
+        return all;
+    }
+
+    /**
+     * RFE-1: Paginated agent list for one specific flavor, independent of
+     * {@code agentApiFlavor}. Used by {@link #listAgents()} when flavor is
+     * {@code both} to fetch CX agents and RE agents in separate passes.
+     */
+    private List<GoogleVertexAgentDescriptor> listFlavorDirect(String flavor) {
+        boolean isRe = FLAVOR_VERTEX_AI.equals(flavor);
+        String baseUrl = isRe
+                ? "https://" + location + "-aiplatform.googleapis.com/v1"
+                : "https://" + location + "-dialogflow.googleapis.com/v3";
+        String resourceSegment = isRe ? "reasoningEngines" : "agents";
+        String listKey = isRe ? "reasoningEngines" : "agents";
+
+        List<GoogleVertexAgentDescriptor> all = new ArrayList<>();
+        String pageToken = null;
+
+        do {
+            StringBuilder url = new StringBuilder(baseUrl)
+                    .append("/").append(agentsParent()).append("/").append(resourceSegment)
+                    .append("?pageSize=50");
+            if (pageToken != null && !pageToken.isEmpty()) {
+                url.append("&pageToken=").append(urlEncode(pageToken));
+            }
+
+            try {
+                HttpRequest request = authedRequestBuilder(url.toString()).GET().build();
+                HttpResponse<String> response = httpClient.send(
+                        request, HttpResponse.BodyHandlers.ofString());
+
+                if (response.statusCode() / 100 != 2) {
+                    throw new RuntimeException("listFlavorDirect(" + flavor + ") failed: HTTP "
+                            + response.statusCode() + " body=" + response.body());
+                }
+
+                JsonNode root = objectMapper.readTree(response.body());
+                if (root.has(listKey) && root.get(listKey).isArray()) {
+                    for (JsonNode node : root.get(listKey)) {
+                        GoogleVertexAgentDescriptor agent = isRe
+                                ? parseReasoningEngineNode(node)
+                                : parseDialogflowAgentNode(node);
+                        if (agent != null) {
+                            all.add(agent);
+                        }
+                    }
+                }
+                pageToken = optText(root, "nextPageToken");
+            } catch (IOException | InterruptedException e) {
+                throw new RuntimeException("Error in listFlavorDirect(" + flavor + ")", e);
+            }
+        } while (pageToken != null);
+
+        LOG.ok("listFlavorDirect({0}) found {1} agents", flavor, all.size());
         return all;
     }
 

@@ -23,6 +23,8 @@ public abstract class GoogleVertexAIConstants {
     // ---------------------------------------------------------------------
     public static final String FLAVOR_DIALOGFLOW_CX = "dialogflowcx";
     public static final String FLAVOR_VERTEX_AI = "vertexai";
+    // RFE-1: discover CX agents + RE agents in a single connector instance
+    public static final String FLAVOR_BOTH = "both";
 
     // ---------------------------------------------------------------------
     // Object class names (aligned with Azure / Bedrock connectors)

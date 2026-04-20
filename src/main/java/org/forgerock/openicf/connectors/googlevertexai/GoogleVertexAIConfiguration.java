@@ -7,6 +7,7 @@ import org.identityconnectors.common.security.GuardedString;
 import org.identityconnectors.framework.spi.AbstractConfiguration;
 import org.identityconnectors.framework.spi.ConfigurationProperty;
 
+import static org.forgerock.openicf.connectors.googlevertexai.utils.GoogleVertexAIConstants.FLAVOR_BOTH;
 import static org.forgerock.openicf.connectors.googlevertexai.utils.GoogleVertexAIConstants.FLAVOR_DIALOGFLOW_CX;
 import static org.forgerock.openicf.connectors.googlevertexai.utils.GoogleVertexAIConstants.FLAVOR_VERTEX_AI;
 
@@ -240,10 +241,12 @@ public class GoogleVertexAIConfiguration extends AbstractConfiguration {
 
         if (agentApiFlavor != null
                 && !FLAVOR_DIALOGFLOW_CX.equals(agentApiFlavor)
-                && !FLAVOR_VERTEX_AI.equals(agentApiFlavor)) {
+                && !FLAVOR_VERTEX_AI.equals(agentApiFlavor)
+                && !FLAVOR_BOTH.equals(agentApiFlavor)) {
             throw new IllegalArgumentException(
                     "agentApiFlavor must be '" + FLAVOR_DIALOGFLOW_CX
-                            + "' or '" + FLAVOR_VERTEX_AI
+                            + "', '" + FLAVOR_VERTEX_AI
+                            + "', or '" + FLAVOR_BOTH
                             + "', got: " + agentApiFlavor);
         }
 
