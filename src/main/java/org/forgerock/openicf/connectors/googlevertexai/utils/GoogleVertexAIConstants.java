@@ -60,16 +60,7 @@ public abstract class GoogleVertexAIConstants {
     public static final String ATTR_AGENT_FRAMEWORK = "agentFramework";
     public static final String ATTR_SERVICE_ACCOUNT = "serviceAccount";
 
-    // Raw tools payload serialized as JSON
-    public static final String ATTR_TOOLS_RAW = "toolsRaw";
-
-    // OPENICF-4011: per-tool auth summary (multi-valued JSON strings on agent OC)
-    public static final String ATTR_TOOL_AUTH_SUMMARY = "toolAuthSummary";
-
-    // OPENICF-4010: search-safe tool identifier (toolId with '/' replaced by '_')
-    public static final String ATTR_TOOL_KEY = "toolKey";
-
-    // Relationship: Agent → Tools (multi-valued tool resource names)
+    // RFE-6: Relationship: Agent → Tools (multi-valued short IDs)
     public static final String ATTR_AGENT_TOOL_IDS = "toolIds";
 
     // Relationship: Agent → Data Stores / Knowledge Bases (multi-valued)
@@ -77,6 +68,15 @@ public abstract class GoogleVertexAIConstants {
 
     // Relationship: Agent → Guardrail (single, synthetic)
     public static final String ATTR_AGENT_GUARDRAIL_ID = "guardrailId";
+
+    // RFE-6: project/region extracted from resource name
+    public static final String ATTR_PROJECT_ID = "projectId";
+    public static final String ATTR_REGION = "region";
+
+    // RFE-6: cross-OC forward pointers on agent OC
+    public static final String ATTR_IDENTITY_BINDING_IDS = "identityBindingIds";
+    public static final String ATTR_SERVICE_ACCOUNT_IDS = "serviceAccountIds";
+    public static final String ATTR_TOOL_CREDENTIAL_IDS = "toolCredentialIds";
 
     // ---------------------------------------------------------------------
     // Tool attributes

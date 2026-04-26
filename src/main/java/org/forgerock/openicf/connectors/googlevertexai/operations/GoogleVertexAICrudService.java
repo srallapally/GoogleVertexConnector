@@ -10,8 +10,7 @@ import org.identityconnectors.framework.common.objects.*;
 import org.identityconnectors.framework.common.objects.filter.EqualsFilter;
 import org.identityconnectors.framework.common.objects.filter.Filter;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 
 import java.util.*;
 
@@ -23,7 +22,6 @@ import static org.identityconnectors.framework.common.objects.Name.NAME;
 public class GoogleVertexAICrudService {
 
     private static final Log LOG = Log.getLog(GoogleVertexAICrudService.class);
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final GoogleVertexAIConnection connection;
     private final GoogleVertexAIClient client;
@@ -43,6 +41,19 @@ public class GoogleVertexAICrudService {
                              OperationOptions options) {
         List<GoogleVertexAgentDescriptor> agents = client.listAgents();
 
+        // RFE-6: cache GCS artifacts once for forward pointer resolution
+        JsonNode cachedBindings = null;
+        JsonNode cachedServiceAccounts = null;
+        JsonNode cachedToolCredentials = null;
+        if (connection.getConfiguration().isIdentityBindingScanEnabled()) {
+            cachedBindings = client.fetchGcsIdentityBindings(
+                    connection.getConfiguration().getGcsIdentityBindingsUrl());
+            cachedServiceAccounts = client.fetchGcsServiceAccounts(
+                    connection.getConfiguration().getGcsServiceAccountsUrl());
+            cachedToolCredentials = client.fetchGcsToolCredentials(
+                    connection.getConfiguration().getGcsToolCredentialsUrl());
+        }
+
         String filterRegex = connection.getConfiguration().getAgentNameFilterRegex();
 
         for (GoogleVertexAgentDescriptor agent : agents) {
@@ -53,7 +64,8 @@ public class GoogleVertexAICrudService {
                 continue;
             }
 
-            ConnectorObject obj = toAgentConnectorObject(objectClass, agent);
+            ConnectorObject obj = toAgentConnectorObject(objectClass, agent,
+                    cachedBindings, cachedServiceAccounts, cachedToolCredentials);
             if (obj == null) {
                 continue;
             }
@@ -252,11 +264,30 @@ public class GoogleVertexAICrudService {
     public ConnectorObject getAgent(ObjectClass objectClass,
                                     Uid uid,
                                     OperationOptions options) {
-        GoogleVertexAgentDescriptor agent = client.getAgent(uid.getUidValue());
-        if (agent == null) {
-            return null;
+        // RFE-6: UID is now the short agent ID (last path segment).
+        // Must list all agents and match, since we can't reconstruct the full
+        // resource name without knowing the flavor (CX vs RE).
+        String shortId = uid.getUidValue();
+        List<GoogleVertexAgentDescriptor> agents = client.listAgents();
+        for (GoogleVertexAgentDescriptor agent : agents) {
+            if (shortId.equals(extractShortId(agent.getResourceName()))) {
+                // RFE-6: fetch GCS artifacts for forward pointers
+                JsonNode cachedBindings = null;
+                JsonNode cachedServiceAccounts = null;
+                JsonNode cachedToolCredentials = null;
+                if (connection.getConfiguration().isIdentityBindingScanEnabled()) {
+                    cachedBindings = client.fetchGcsIdentityBindings(
+                            connection.getConfiguration().getGcsIdentityBindingsUrl());
+                    cachedServiceAccounts = client.fetchGcsServiceAccounts(
+                            connection.getConfiguration().getGcsServiceAccountsUrl());
+                    cachedToolCredentials = client.fetchGcsToolCredentials(
+                            connection.getConfiguration().getGcsToolCredentialsUrl());
+                }
+                return toAgentConnectorObject(objectClass, agent,
+                        cachedBindings, cachedServiceAccounts, cachedToolCredentials);
+            }
         }
-        return toAgentConnectorObject(objectClass, agent);
+        return null;
     }
 
     public ConnectorObject getTool(ObjectClass objectClass,
@@ -266,10 +297,11 @@ public class GoogleVertexAICrudService {
             return null;
         }
 
-        String id = uid.getUidValue();
+        // RFE-6: UID is now {agentUUID}/tools/{toolUUID} or {agentUUID}/webhooks/{id}
+        String shortId = uid.getUidValue();
         List<GoogleVertexToolDescriptor> tools = client.listAllTools();
         for (GoogleVertexToolDescriptor tool : tools) {
-            if (id.equals(tool.getName())) {
+            if (shortId.equals(buildShortToolId(tool))) {
                 return toToolConnectorObject(objectClass, tool);
             }
         }
@@ -283,10 +315,11 @@ public class GoogleVertexAICrudService {
             return null;
         }
 
-        String id = uid.getUidValue();
+        // RFE-6: UID is now {agentUUID}/dataStores/{dsId}
+        String shortId = uid.getUidValue();
         List<GoogleVertexDataStoreDescriptor> stores = client.listAllDataStores();
         for (GoogleVertexDataStoreDescriptor ds : stores) {
-            if (id.equals(ds.getName())) {
+            if (shortId.equals(buildShortDataStoreId(ds))) {
                 return toKnowledgeBaseConnectorObject(objectClass, ds);
             }
         }
@@ -301,10 +334,12 @@ public class GoogleVertexAICrudService {
             return null;
         }
 
-        String id = uid.getUidValue();
+        // RFE-6: UID is now {agentUUID}:guardrail
+        String shortId = uid.getUidValue();
         List<GoogleVertexGuardrailDescriptor> guardrails = client.listAllGuardrails();
         for (GoogleVertexGuardrailDescriptor guardrail : guardrails) {
-            if (id.equals(guardrail.getId())) {
+            String guardrailShortId = extractShortId(guardrail.getAgentResourceName()) + ":guardrail";
+            if (shortId.equals(guardrailShortId)) {
                 return toGuardrailConnectorObject(objectClass, guardrail);
             }
         }
@@ -338,8 +373,9 @@ public class GoogleVertexAICrudService {
 
         String targetUid = uid.getUidValue();
         for (com.fasterxml.jackson.databind.JsonNode node : saNode) {
-            com.fasterxml.jackson.databind.JsonNode nameNode = node.get("name");
-            if (nameNode != null && targetUid.equals(nameNode.asText())) {
+            // BUG-7: GCS artifact uses "id" for canonical key, not "name"
+            com.fasterxml.jackson.databind.JsonNode idNode = node.get("id");
+            if (idNode != null && targetUid.equals(idNode.asText())) {
                 return toServiceAccountConnectorObject(objectClass, node);
             }
         }
@@ -421,20 +457,28 @@ public class GoogleVertexAICrudService {
     // ConnectorObject mapping
     // =================================================================
 
+    // RFE-6: accepts cached GCS artifacts for forward pointer resolution
     private ConnectorObject toAgentConnectorObject(ObjectClass objectClass,
-                                                   GoogleVertexAgentDescriptor agent) {
+                                                   GoogleVertexAgentDescriptor agent,
+                                                   JsonNode cachedBindings,
+                                                   JsonNode cachedServiceAccounts,
+                                                   JsonNode cachedToolCredentials) {
         if (agent == null || agent.getResourceName() == null) {
             return null;
         }
 
+        String resourceName = agent.getResourceName();
+        String shortId = extractShortId(resourceName);
+
         ConnectorObjectBuilder b = new ConnectorObjectBuilder();
         b.setObjectClass(objectClass);
 
-        b.setUid(new Uid(agent.getResourceName()));
+        // RFE-6: UID = last path segment
+        b.setUid(new Uid(shortId));
 
         String displayName = agent.getDisplayName() != null
                 ? agent.getDisplayName()
-                : agent.getResourceName();
+                : resourceName;
         b.setName(new Name(displayName));
 
         b.addAttribute(AttributeBuilder.build(
@@ -443,7 +487,11 @@ public class GoogleVertexAICrudService {
 
         b.addAttribute(AttributeBuilder.build(
                 GoogleVertexAIConstants.ATTR_AGENT_ID,
-                agent.getResourceName()));
+                resourceName));
+
+        // RFE-6: project/region extracted from resource name
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_PROJECT_ID, extractProjectId(resourceName));
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_REGION, extractRegion(resourceName));
 
         addIfPresent(b, GoogleVertexAIConstants.ATTR_DESCRIPTION, agent.getDescription());
         addIfPresent(b, GoogleVertexAIConstants.ATTR_FOUNDATION_MODEL, agent.getGenerativeModel());
@@ -459,55 +507,50 @@ public class GoogleVertexAICrudService {
         addIfPresent(b, GoogleVertexAIConstants.ATTR_AGENT_FRAMEWORK, agent.getAgentFramework());
         addIfPresent(b, GoogleVertexAIConstants.ATTR_SERVICE_ACCOUNT, agent.getServiceAccount());
 
-        // Fetch tools for this agent to populate toolIds, toolsRaw, and toolAuthSummary
-        List<GoogleVertexToolDescriptor> tools = client.listTools(agent.getResourceName());
+        // RFE-6: toolIds as short IDs
+        List<GoogleVertexToolDescriptor> tools = client.listTools(resourceName);
         if (!tools.isEmpty()) {
-            List<String> toolNames = new ArrayList<>();
-            List<String> authSummaries = new ArrayList<>();
+            List<String> shortToolIds = new ArrayList<>();
             for (GoogleVertexToolDescriptor t : tools) {
-                toolNames.add(t.getName());
-                // OPENICF-4011: build per-tool auth summary entry
-                try {
-                    Map<String, String> entry = new LinkedHashMap<>();
-                    entry.put("toolId", t.getName());
-                    entry.put("toolKey", t.getToolKey()); // OPENICF-4010
-                    entry.put("toolType", t.getToolType());
-                    entry.put("authType", t.getAuthType() != null ? t.getAuthType() : "NONE");
-                    if (t.getCredentialRef() != null) {
-                        entry.put("credentialRef", t.getCredentialRef());
-                    }
-                    authSummaries.add(OBJECT_MAPPER.writeValueAsString(entry));
-                } catch (JsonProcessingException e) {
-                    LOG.warn("Failed to serialize toolAuthSummary entry for tool {0}", t.getName());
-                }
+                shortToolIds.add(buildShortToolId(t));
             }
             b.addAttribute(AttributeBuilder.build(
-                    GoogleVertexAIConstants.ATTR_AGENT_TOOL_IDS, toolNames));
-
-            try {
-                String toolsJson = OBJECT_MAPPER.writeValueAsString(toolNames);
-                b.addAttribute(AttributeBuilder.build(
-                        GoogleVertexAIConstants.ATTR_TOOLS_RAW, toolsJson));
-            } catch (JsonProcessingException e) {
-                LOG.warn("Failed to serialize tool IDs for agent {0}", agent.getResourceName());
-            }
-
-            if (!authSummaries.isEmpty()) {
-                b.addAttribute(AttributeBuilder.build(
-                        GoogleVertexAIConstants.ATTR_TOOL_AUTH_SUMMARY, authSummaries));
-            }
+                    GoogleVertexAIConstants.ATTR_AGENT_TOOL_IDS, shortToolIds));
         }
 
-        // Fetch data stores for this agent to populate knowledgeBaseIds
-        List<GoogleVertexDataStoreDescriptor> stores = client.listDataStores(agent.getResourceName());
+        // RFE-6: knowledgeBaseIds as short IDs
+        List<GoogleVertexDataStoreDescriptor> stores = client.listDataStores(resourceName);
         if (!stores.isEmpty()) {
-            List<String> storeNames = new ArrayList<>();
+            List<String> shortStoreIds = new ArrayList<>();
             for (GoogleVertexDataStoreDescriptor ds : stores) {
-                storeNames.add(ds.getName());
+                shortStoreIds.add(buildShortDataStoreId(ds));
             }
             b.addAttribute(AttributeBuilder.build(
-                    GoogleVertexAIConstants.ATTR_AGENT_KNOWLEDGE_BASE_IDS, storeNames));
+                    GoogleVertexAIConstants.ATTR_AGENT_KNOWLEDGE_BASE_IDS, shortStoreIds));
         }
+
+        // RFE-6: guardrailId — populated when agent has safety settings
+        if (agent.getSafetySettingsJson() != null && !agent.getSafetySettingsJson().isEmpty()) {
+            GoogleVertexGuardrailDescriptor guardrail = client.parseGuardrailFromAgent(agent);
+            if (guardrail != null && guardrail.hasConfiguration()) {
+                b.addAttribute(AttributeBuilder.build(
+                        GoogleVertexAIConstants.ATTR_AGENT_GUARDRAIL_ID,
+                        shortId + ":guardrail"));
+            }
+        }
+
+        // RFE-6: cross-OC forward pointers from GCS artifacts
+        List<String> bindingIds = resolveBindingIds(shortId, cachedBindings);
+        b.addAttribute(AttributeBuilder.build(
+                GoogleVertexAIConstants.ATTR_IDENTITY_BINDING_IDS, bindingIds));
+
+        List<String> saIds = resolveServiceAccountIds(shortId, cachedServiceAccounts);
+        b.addAttribute(AttributeBuilder.build(
+                GoogleVertexAIConstants.ATTR_SERVICE_ACCOUNT_IDS, saIds));
+
+        List<String> tcIds = resolveToolCredentialIds(resourceName, cachedToolCredentials);
+        b.addAttribute(AttributeBuilder.build(
+                GoogleVertexAIConstants.ATTR_TOOL_CREDENTIAL_IDS, tcIds));
 
         return b.build();
     }
@@ -521,7 +564,8 @@ public class GoogleVertexAICrudService {
         ConnectorObjectBuilder b = new ConnectorObjectBuilder();
         b.setObjectClass(objectClass);
 
-        b.setUid(new Uid(tool.getName()));
+        // RFE-6: UID = {agentUUID}/tools/{toolUUID} or {agentUUID}/webhooks/{id}
+        b.setUid(new Uid(buildShortToolId(tool)));
 
         String displayName = tool.getDisplayName() != null
                 ? tool.getDisplayName()
@@ -532,7 +576,10 @@ public class GoogleVertexAICrudService {
         addIfPresent(b, GoogleVertexAIConstants.ATTR_DESCRIPTION, tool.getDescription());
         addIfPresent(b, GoogleVertexAIConstants.ATTR_TOOL_TYPE, tool.getToolType());
         addIfPresent(b, GoogleVertexAIConstants.ATTR_TOOL_ENDPOINT, tool.getEndpoint());
-        addIfPresent(b, GoogleVertexAIConstants.ATTR_TOOL_KEY, tool.getToolKey()); // OPENICF-4010
+
+        // RFE-6: project/region extracted from tool resource name
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_PROJECT_ID, extractProjectId(tool.getName()));
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_REGION, extractRegion(tool.getName()));
 
         return b.build();
     }
@@ -546,7 +593,8 @@ public class GoogleVertexAICrudService {
         ConnectorObjectBuilder b = new ConnectorObjectBuilder();
         b.setObjectClass(objectClass);
 
-        b.setUid(new Uid(ds.getName()));
+        // RFE-6: UID = {agentUUID}/dataStores/{dsId}
+        b.setUid(new Uid(buildShortDataStoreId(ds)));
 
         String displayName = ds.getDisplayName() != null
                 ? ds.getDisplayName()
@@ -564,6 +612,10 @@ public class GoogleVertexAICrudService {
         addIfPresent(b, GoogleVertexAIConstants.ATTR_DATA_STORE_TYPE, ds.getDataStoreType());
         addIfPresent(b, GoogleVertexAIConstants.ATTR_KNOWLEDGE_BASE_STATE, ds.getStatus());
         addIfPresent(b, GoogleVertexAIConstants.ATTR_AGENT_ID, ds.getAgentResourceName());
+
+        // RFE-6: project/region extracted from resource name
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_PROJECT_ID, extractProjectId(ds.getName()));
+        addIfPresent(b, GoogleVertexAIConstants.ATTR_REGION, extractRegion(ds.getName()));
 
         return b.build();
     }
@@ -640,11 +692,12 @@ public class GoogleVertexAICrudService {
         ConnectorObjectBuilder b = new ConnectorObjectBuilder();
         b.setObjectClass(objectClass);
 
-        // __UID__ = {agentResourceName}:guardrail
-        b.setUid(new Uid(guardrail.getId()));
+        // RFE-6: __UID__ = {agentUUID}:guardrail
+        String guardrailShortId = extractShortId(guardrail.getAgentResourceName()) + ":guardrail";
+        b.setUid(new Uid(guardrailShortId));
 
         // __NAME__ = same as UID for guardrails
-        b.setName(new Name(guardrail.getId()));
+        b.setName(new Name(guardrailShortId));
 
         b.addAttribute(AttributeBuilder.build(
                 GoogleVertexAIConstants.ATTR_PLATFORM,
@@ -681,7 +734,8 @@ public class GoogleVertexAICrudService {
             return null;
         }
 
-        String name = gcsText(node, "name");
+        // BUG-7: GCS artifact uses "id" for canonical key, not "name"
+        String name = gcsText(node, "id");
         if (name == null || name.isEmpty()) {
             return null;
         }
@@ -809,5 +863,162 @@ public class GoogleVertexAICrudService {
     private static String gcsText(com.fasterxml.jackson.databind.JsonNode node, String field) {
         com.fasterxml.jackson.databind.JsonNode v = node.get(field);
         return (v == null || v.isNull()) ? null : v.asText();
+    }
+
+    // =================================================================
+    // RFE-6: Resource name parsing helpers
+    // =================================================================
+
+    /**
+     * Extract the last path segment from a GCP resource name.
+     * e.g. "projects/p/locations/l/agents/abc-123" → "abc-123"
+     */
+    static String extractShortId(String resourceName) {
+        if (resourceName == null) {
+            return null;
+        }
+        int idx = resourceName.lastIndexOf('/');
+        return idx >= 0 ? resourceName.substring(idx + 1) : resourceName;
+    }
+
+    /**
+     * Extract project ID from a resource name.
+     * e.g. "projects/my-project/locations/us-central1/agents/123" → "my-project"
+     */
+    static String extractProjectId(String resourceName) {
+        if (resourceName == null) {
+            return null;
+        }
+        // Pattern: projects/{projectId}/...
+        if (!resourceName.startsWith("projects/")) {
+            return null;
+        }
+        int start = "projects/".length();
+        int end = resourceName.indexOf('/', start);
+        return end > start ? resourceName.substring(start, end) : null;
+    }
+
+    /**
+     * Extract region from a resource name.
+     * e.g. "projects/p/locations/us-central1/agents/123" → "us-central1"
+     */
+    static String extractRegion(String resourceName) {
+        if (resourceName == null) {
+            return null;
+        }
+        int locIdx = resourceName.indexOf("/locations/");
+        if (locIdx < 0) {
+            return null;
+        }
+        int start = locIdx + "/locations/".length();
+        int end = resourceName.indexOf('/', start);
+        return end > start ? resourceName.substring(start, end) : resourceName.substring(start);
+    }
+
+    /**
+     * Build short tool ID: {agentUUID}/tools/{toolUUID} or {agentUUID}/webhooks/{webhookId}.
+     * Derives the suffix segment type (tools or webhooks) from the full resource name.
+     */
+    static String buildShortToolId(GoogleVertexToolDescriptor tool) {
+        String name = tool.getName();
+        String agentShortId = extractShortId(tool.getAgentResourceName());
+        // name: .../agents/{a}/tools/{t} or .../agents/{a}/webhooks/{w}
+        // Find the segment type and ID after the agent path
+        int agentsIdx = name.indexOf("/agents/");
+        if (agentsIdx < 0) {
+            // fallback for unexpected format
+            return agentShortId + "/tools/" + extractShortId(name);
+        }
+        // skip past "/agents/{agentId}/"
+        String afterAgents = name.substring(agentsIdx + "/agents/".length());
+        int slashIdx = afterAgents.indexOf('/');
+        if (slashIdx < 0) {
+            return agentShortId + "/tools/" + extractShortId(name);
+        }
+        // afterAgents is now "{agentId}/tools/{toolId}" or "{agentId}/webhooks/{id}"
+        String suffix = afterAgents.substring(slashIdx + 1); // "tools/{toolId}" or "webhooks/{id}"
+        return agentShortId + "/" + suffix;
+    }
+
+    /**
+     * Build short data store ID: {agentUUID}/dataStores/{dsId}.
+     */
+    static String buildShortDataStoreId(GoogleVertexDataStoreDescriptor ds) {
+        String agentShortId = extractShortId(ds.getAgentResourceName());
+        String dsShortId = extractShortId(ds.getName());
+        return agentShortId + "/dataStores/" + dsShortId;
+    }
+
+    // =================================================================
+    // RFE-6: Forward pointer resolution from cached GCS artifacts
+    // =================================================================
+
+    /**
+     * Find identity binding IDs that reference this agent (by short agent ID).
+     * The job's identity-bindings.json uses short agent IDs in the agentId field.
+     */
+    private List<String> resolveBindingIds(String agentShortId, JsonNode cachedBindings) {
+        List<String> ids = new ArrayList<>();
+        if (cachedBindings == null || !cachedBindings.isArray()) {
+            return ids;
+        }
+        for (JsonNode node : cachedBindings) {
+            String bindingAgentId = gcsText(node, "agentId");
+            if (agentShortId.equals(bindingAgentId)) {
+                String id = gcsText(node, "id");
+                if (id != null) {
+                    ids.add(id);
+                }
+            }
+        }
+        return ids;
+    }
+
+    /**
+     * Find service account IDs linked to this agent (by short agent ID).
+     * The job's service-accounts.json has linkedAgentIds containing short IDs.
+     */
+    private List<String> resolveServiceAccountIds(String agentShortId, JsonNode cachedServiceAccounts) {
+        List<String> ids = new ArrayList<>();
+        if (cachedServiceAccounts == null || !cachedServiceAccounts.isArray()) {
+            return ids;
+        }
+        for (JsonNode node : cachedServiceAccounts) {
+            JsonNode linkedAgents = node.get("linkedAgentIds");
+            if (linkedAgents != null && linkedAgents.isArray()) {
+                for (JsonNode agentIdNode : linkedAgents) {
+                    if (agentShortId.equals(agentIdNode.asText())) {
+                        // BUG-7: GCS artifact uses "id" for canonical key, not "name"
+                        String saId = gcsText(node, "id");
+                        if (saId != null) {
+                            ids.add(saId);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        return ids;
+    }
+
+    /**
+     * Find tool credential IDs for this agent (by full agent resource name).
+     * The job's tool-credentials.json uses full agent resource names in agentId.
+     */
+    private List<String> resolveToolCredentialIds(String agentResourceName, JsonNode cachedToolCredentials) {
+        List<String> ids = new ArrayList<>();
+        if (cachedToolCredentials == null || !cachedToolCredentials.isArray()) {
+            return ids;
+        }
+        for (JsonNode node : cachedToolCredentials) {
+            String tcAgentId = gcsText(node, "agentId");
+            if (agentResourceName.equals(tcAgentId)) {
+                String id = gcsText(node, "id");
+                if (id != null) {
+                    ids.add(id);
+                }
+            }
+        }
+        return ids;
     }
 }

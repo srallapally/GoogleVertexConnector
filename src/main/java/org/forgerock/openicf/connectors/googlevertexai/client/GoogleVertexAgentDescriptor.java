@@ -72,7 +72,7 @@ public class GoogleVertexAgentDescriptor {
         return name;
     }
 
-    /** The full resource name, same as {@link #getName()}. Used as __UID__. */
+    /** The full resource name, same as {@link #getName()}. Retained for API path reconstruction. */
     public String getResourceName() {
         return name;
     }

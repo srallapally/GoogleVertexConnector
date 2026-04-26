@@ -135,8 +135,6 @@ public class GoogleVertexAIConnector implements
                 GoogleVertexAIConstants.ATTR_UPDATED_AT, String.class));
         agentOc.addAttributeInfo(AttributeInfoBuilder.build(
                 GoogleVertexAIConstants.ATTR_SAFETY_SETTINGS, String.class));
-        agentOc.addAttributeInfo(AttributeInfoBuilder.build(
-                GoogleVertexAIConstants.ATTR_TOOLS_RAW, String.class));
         agentOc.addAttributeInfo(AttributeInfoBuilder.define(
                         GoogleVertexAIConstants.ATTR_AGENT_TOOL_IDS)
                 .setType(String.class).setMultiValued(true).build());
@@ -152,9 +150,22 @@ public class GoogleVertexAIConnector implements
                 GoogleVertexAIConstants.ATTR_AGENT_FRAMEWORK, String.class));
         agentOc.addAttributeInfo(AttributeInfoBuilder.build(
                 GoogleVertexAIConstants.ATTR_SERVICE_ACCOUNT, String.class));
-        // OPENICF-4011: per-tool auth summary
+
+        // RFE-6: project/region extracted from resource name
+        agentOc.addAttributeInfo(AttributeInfoBuilder.build(
+                GoogleVertexAIConstants.ATTR_PROJECT_ID, String.class));
+        agentOc.addAttributeInfo(AttributeInfoBuilder.build(
+                GoogleVertexAIConstants.ATTR_REGION, String.class));
+
+        // RFE-6: cross-OC forward pointers
         agentOc.addAttributeInfo(AttributeInfoBuilder.define(
-                        GoogleVertexAIConstants.ATTR_TOOL_AUTH_SUMMARY)
+                        GoogleVertexAIConstants.ATTR_IDENTITY_BINDING_IDS)
+                .setType(String.class).setMultiValued(true).build());
+        agentOc.addAttributeInfo(AttributeInfoBuilder.define(
+                        GoogleVertexAIConstants.ATTR_SERVICE_ACCOUNT_IDS)
+                .setType(String.class).setMultiValued(true).build());
+        agentOc.addAttributeInfo(AttributeInfoBuilder.define(
+                        GoogleVertexAIConstants.ATTR_TOOL_CREDENTIAL_IDS)
                 .setType(String.class).setMultiValued(true).build());
 
         builder.defineObjectClass(agentOc.build());
@@ -173,9 +184,11 @@ public class GoogleVertexAIConnector implements
                 GoogleVertexAIConstants.ATTR_TOOL_TYPE, String.class));
         toolOc.addAttributeInfo(AttributeInfoBuilder.build(
                 GoogleVertexAIConstants.ATTR_TOOL_ENDPOINT, String.class));
-        // OPENICF-4010: search-safe tool identifier ('/' replaced by '_')
+        // RFE-6: project/region extracted from resource name
         toolOc.addAttributeInfo(AttributeInfoBuilder.build(
-                GoogleVertexAIConstants.ATTR_TOOL_KEY, String.class));
+                GoogleVertexAIConstants.ATTR_PROJECT_ID, String.class));
+        toolOc.addAttributeInfo(AttributeInfoBuilder.build(
+                GoogleVertexAIConstants.ATTR_REGION, String.class));
 
         builder.defineObjectClass(toolOc.build());
 
@@ -195,6 +208,11 @@ public class GoogleVertexAIConnector implements
                 GoogleVertexAIConstants.ATTR_DATA_STORE_TYPE, String.class));
         kbOc.addAttributeInfo(AttributeInfoBuilder.build(
                 GoogleVertexAIConstants.ATTR_AGENT_ID, String.class));
+        // RFE-6: project/region extracted from resource name
+        kbOc.addAttributeInfo(AttributeInfoBuilder.build(
+                GoogleVertexAIConstants.ATTR_PROJECT_ID, String.class));
+        kbOc.addAttributeInfo(AttributeInfoBuilder.build(
+                GoogleVertexAIConstants.ATTR_REGION, String.class));
 
         builder.defineObjectClass(kbOc.build());
 

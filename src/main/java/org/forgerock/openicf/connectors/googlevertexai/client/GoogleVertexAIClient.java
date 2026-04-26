@@ -1154,9 +1154,10 @@ public class GoogleVertexAIClient implements AutoCloseable, Closeable {
             agentFramework = optText(node.get("spec"), "agentFramework");
         }
 
+        // RFE-5: Read spec.effectiveIdentity (deploymentSpec.serviceAccount is not valid in v1 API)
         String serviceAccount = null;
-        if (node.has("deploymentSpec")) {
-            serviceAccount = optText(node.get("deploymentSpec"), "serviceAccount");
+        if (node.has("spec")) {
+            serviceAccount = optText(node.get("spec"), "effectiveIdentity");
         }
 
         return new GoogleVertexAgentDescriptor(
@@ -1206,8 +1207,7 @@ public class GoogleVertexAIClient implements AutoCloseable, Closeable {
                 null, // tools don't have a direct endpoint
                 agentResourceName,
                 "NONE", // OPENICF-4011: CX tools have no auth config at the tool level
-                null,
-                name.replace("/", "_") // OPENICF-4010: toolKey
+                null
         );
     }
 
@@ -1250,8 +1250,7 @@ public class GoogleVertexAIClient implements AutoCloseable, Closeable {
                 endpoint,
                 agentResourceName,
                 authType,
-                credentialRef,
-                name.replace("/", "_") // OPENICF-4010: toolKey
+                credentialRef
         );
     }
 
